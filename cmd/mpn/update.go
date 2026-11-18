@@ -200,13 +200,16 @@ func panelAnswers() error {
 	if port == 0 {
 		port = 2610
 	}
-	c := &http.Client{Timeout: 3 * time.Second, Transport: insecureLocal()}
+	// Before the admin account exists, /login sends the browser to /setup, which answers 403 without its one-time key. The
+	// redirect is the panel answering, so it is not followed.
+	c := &http.Client{Timeout: 3 * time.Second, Transport: insecureLocal(),
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	var last error
 	for i := 0; i < 15; i++ {
 		resp, err := c.Get(fmt.Sprintf("https://127.0.0.1:%d/login", port))
 		if err == nil {
 			resp.Body.Close()
-			if resp.StatusCode == 200 {
+			if resp.StatusCode == 200 || resp.StatusCode == http.StatusSeeOther {
 				return nil
 			}
 			err = fmt.Errorf("the sign-in page answered %d", resp.StatusCode)
