@@ -38,5 +38,7 @@ jobs:
 
       - name: Known vulnerabilities
         run: |
-          go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
+          # v1.1.4 (x/tools 0.29) panics on code built with Go 1.27.
+          go install golang.org/x/vuln/cmd/govulncheck@v1.10.0
           govulncheck ./...
+          govulncheck -tags cloud ./cmd/mpn
