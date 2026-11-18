@@ -65,10 +65,11 @@ func TestChmodChangesTheNamedItemsOnly(t *testing.T) {
 	if modeOf(t, root, "a.txt").Perm() != 0o600 || modeOf(t, root, "d").Perm() != 0o600 {
 		t.Error("the named items were not changed")
 	}
+	// A folder without x cannot be looked into by an account that is not root: open it again before reading what is inside.
+	_ = os.Chmod(filepath.Join(root, "d"), 0o755)
 	if modeOf(t, root, "b.txt").Perm() != 0o644 || modeOf(t, root, "d/in.txt").Perm() != 0o644 {
 		t.Error("something that was not named, or something inside a folder without Recursive, was changed")
 	}
-	_ = os.Chmod(filepath.Join(root, "d"), 0o755) // so the temporary directory can be removed
 }
 
 func TestChmodKeepsTheSetgidBitOfAFolder(t *testing.T) {
@@ -145,6 +146,7 @@ func TestChmodLeavesLinksAloneAndStopsAtTheLimit(t *testing.T) {
 	if modeOf(t, root, "target.txt").Perm() != 0o644 {
 		t.Error("the target of a link was changed")
 	}
+	_ = os.Chmod(filepath.Join(root, "d"), 0o755) // 0600 left it closed to an account that is not root
 	_, err = c.Chmod([]string{"d"}, 0o644, ChmodOpts{Recursive: true}, Limits{Entries: 2})
 	if !errors.Is(err, ErrTooMany) {
 		t.Errorf("limit: %v", err)

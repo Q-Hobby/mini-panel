@@ -300,6 +300,8 @@ func TestZipAndUnzipFromThePage(t *testing.T) {
 
 func TestChangingPermissionsRefusesWhatItShould(t *testing.T) {
 	e := startFM(t)
+	// The test sets css to 0640; an account that is not root could then not remove the temporary folder.
+	t.Cleanup(func() { _ = os.Chmod(filepath.Join(e.home, "css"), 0o755) })
 	chmod := func(mode string, items ...string) (int, string) {
 		resp, _ := e.post(t, "/sites/blog/files/chmod", url.Values{"dir": {""}, "mode": {mode}, "item": items})
 		if resp.StatusCode != 303 {
