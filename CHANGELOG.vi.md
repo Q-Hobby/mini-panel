@@ -4,6 +4,21 @@ Mọi thay đổi đáng kể của Mini Panel được ghi ở đây. Số phi�
 
 Bản chính bằng tiếng Anh: [CHANGELOG.md](CHANGELOG.md). Có thêm bản [tiếng Trung](CHANGELOG.zh.md).
 
+## [1.2.1] - 2026-11-18
+
+### Sửa
+
+- Các trang của panel chậm hơn ở bản 1.2.0, vì rclone làm chương trình `mpn` nặng 109 MB và mỗi lần chạy lâu thêm khoảng 100 ms, trong khi panel chạy `mpn` vài lần cho mỗi trang. rclone giờ nằm trong một chương trình thứ hai, `/usr/local/bin/mpn-cloud` (cùng mã nguồn, build kèm rclone), và `mpn` chỉ gọi nó khi kết nối kho lưu trữ hoặc chép, liệt kê, tải bản sao lưu. `mpn` trở lại 19 MB và khởi động trong 0,02 s thay vì 0,18 s trên máy 1 vCPU.
+- Danh sách kho lưu trữ ngoài máy chủ hiện mã dịch như `cld.kind.azureblob` cho các kho sinh từ danh sách của rclone. Giờ mỗi kho có tên, mô tả và gợi ý, kèm ô tìm kiếm để lọc danh sách.
+
+### Đổi
+
+- Cập nhật có trang riêng, mục **Cập nhật** trên menu chính, thay cho một phần của trang Cài đặt.
+- Panel và trang tài liệu mặc định bằng tiếng Anh. Trình duyệt chọn tiếng Việt hay tiếng Trung thì nhận ngôn ngữ đó, và vẫn đổi được bằng menu ngôn ngữ. Địa chỉ tài liệu cũ dưới `/en/` dẫn sang địa chỉ mới.
+
+### Lưu ý khi nâng cấp
+
+- `mpn update`, nút Cập nhật của panel và bộ cài tải cả hai chương trình. Máy cập nhật bằng bản 1.2.0 (chỉ biết `mpn`) sẽ nhận `mpn-cloud` khi `mpn` mới chạy `mpn panel migrate -apply` ở cuối lần cập nhật.
 ## [1.2.0] - 2026-11-18
 
 ### Thêm

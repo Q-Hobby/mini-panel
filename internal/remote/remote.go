@@ -25,62 +25,21 @@ import (
 	"mpn/internal/cloudsync"
 )
 
-// Paths of the files root keeps. rclone.conf holds the secrets of the storage, so only root reads it; remote.json holds no secret.
+// Paths of the files root keeps; they are defined in internal/cloudprov, which a program without rclone can import.
 const (
-	ConfigFile   = "/etc/mpn/rclone.conf"
-	SettingsFile = "/etc/mpn/remote.json"
+	ConfigFile   = cloudprov.RcloneConfigFile
+	SettingsFile = cloudprov.SettingsFile
 	RemoteName   = "mpn"
 )
 
-// Saved is what remote.json holds: enough for the panel to show the connection and fill the form again, never a secret.
-type Saved struct {
-	Type   string            `json:"type"`
-	Bucket string            `json:"bucket,omitempty"`
-	Folder string            `json:"folder,omitempty"`
-	Shown  map[string]string `json:"shown,omitempty"`
-}
-
-func (s Saved) Root() string { return cloudprov.Root(s.Bucket, s.Folder) }
+// Saved is what remote.json holds (see cloudprov.Saved).
+type Saved = cloudprov.Saved
 
 // LoadSaved returns the connection, or an error that wraps os.ErrNotExist when there is none.
-func LoadSaved(path string) (Saved, error) {
-	var s Saved
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return s, err
-	}
-	if err := json.Unmarshal(b, &s); err != nil {
-		return s, fmt.Errorf("%s: %w", path, err)
-	}
-	if _, ok := cloudprov.Find(s.Type); !ok {
-		return s, fmt.Errorf("%s names an unknown storage type %q", path, s.Type)
-	}
-	return s, nil
-}
+func LoadSaved(path string) (Saved, error) { return cloudprov.LoadSaved(path) }
 
 // WritePrivate writes a file that only root reads, whole or not at all.
-func WritePrivate(path string, data []byte) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".remote-*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(tmp.Name())
-	if err := tmp.Chmod(0o600); err != nil {
-		tmp.Close()
-		return err
-	}
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmp.Name(), path)
-}
+func WritePrivate(path string, data []byte) error { return cloudprov.WritePrivate(path, data) }
 
 // Setup points rclone at its config file and keeps it small for a 1 GB server: one file at a time, little buffer.
 func Setup(ctx context.Context, configPath string) (context.Context, error) {

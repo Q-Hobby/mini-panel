@@ -37,6 +37,7 @@ type cloudView struct {
 	Fetch     *cloudFetchView   `json:"fetch"`
 
 	Forms       []cloudForm `json:"-"`
+	KindName    string      `json:"-"` // the name of a storage generated from rclone's list, which has no translation
 	FetchAtText string      `json:"-"`
 	FetchMsg    string      `json:"-"`
 	Error       string      `json:"-"`
@@ -51,6 +52,32 @@ type cloudForm struct {
 	Type   string
 	Bucket bool
 	Fields []cloudField
+	// Name is the name shown for a storage without a form of its own (one generated from rclone's list); the others are
+	// translated by their type. Desc is a key of the translations.
+	Name, Desc string
+	Generated  bool
+	Search     string // what the search box of the list matches, in lower case
+}
+
+// providerNames tidies the names rclone gives some backends: lower case, a list of other brands, or a long explanation.
+var providerNames = map[string]string{
+	"drive": "Google Drive (rclone token)", "seafile": "Seafile", "pcloud": "pCloud", "dosya": "Dosya", "premiumizeme": "premiumize.me",
+	"koofr": "Koofr / Digi Storage", "hdfs": "Hadoop HDFS", "swift": "OpenStack Swift", "iclouddrive": "iCloud Drive",
+	"pixeldrain": "Pixeldrain", "filelu": "FileLu", "shade": "Shade", "sia": "Sia", "storj": "Storj", "quatrix": "Quatrix",
+	"qingstor": "QingStor", "oracleobjectstorage": "Oracle Cloud Object Storage", "netstorage": "Akamai NetStorage",
+	"sharefile": "Citrix ShareFile", "sugarsync": "SugarSync", "azureblob": "Azure Blob Storage", "azurefiles": "Azure Files",
+	"ulozto": "Uloz.to", "filefabric": "Enterprise File Fabric", "smb": "SMB / CIFS (Windows share)", "mailru": "Mail.ru Cloud",
+	"internxt": "Internxt Drive", "kdrive": "Infomaniak kDrive", "googlecloudstorage": "Google Cloud Storage",
+}
+
+func providerName(p cloudprov.Provider) string {
+	if n, ok := providerNames[p.Type]; ok {
+		return n
+	}
+	if p.Name != "" {
+		return p.Name
+	}
+	return p.Type
 }
 
 type cloudField struct {
@@ -70,9 +97,27 @@ var placeholders = map[string]string{
 func cloudForms() []cloudForm {
 	out := make([]cloudForm, 0, len(cloudprov.Providers))
 	for _, p := range cloudprov.Providers {
-		f := cloudForm{Type: p.Type, Bucket: p.Bucket}
+		f := cloudForm{Type: p.Type, Bucket: p.Bucket, Generated: p.Generated, Desc: "cld.kind." + p.Type + ".d"}
+		if p.Generated {
+			f.Name, f.Desc = providerName(p), "cld.gen.d"
+			if p.OAuth {
+				f.Desc = "cld.gen.oauth.d"
+			}
+		}
+		f.Search = strings.ToLower(p.Type + " " + f.Name + " " + p.Name)
 		for _, x := range p.Fields {
-			f.Fields = append(f.Fields, cloudField{Field: x, Label: "cld.f." + p.Type + "." + x.Key, Placeholder: placeholders[p.Type+"."+x.Key]})
+			label := "cld.f." + p.Type + "." + x.Key
+			if p.Generated {
+				label = x.Help // rclone's own words, in English; T gives back a text it has no translation for
+				if label == "" {
+					label = x.Key
+				}
+			}
+			ph := placeholders[p.Type+"."+x.Key]
+			if ph == "" {
+				ph = x.Placeholder
+			}
+			f.Fields = append(f.Fields, cloudField{Field: x, Label: label, Placeholder: ph})
 		}
 		out = append(out, f)
 	}
@@ -108,6 +153,9 @@ func (s *Server) loadCloudText(T translator, siteName string) *cloudView {
 	}
 	if !v.Connected && v.Pending == nil {
 		v.Forms = cloudForms()
+	}
+	if p, ok := cloudprov.Find(v.Kind); ok && p.Generated {
+		v.KindName = providerName(p)
 	}
 	if v.Pending != nil {
 		v.ExpiresText = time.Unix(v.Pending.Expires, 0).Local().Format("15:04")

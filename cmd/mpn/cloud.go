@@ -21,7 +21,6 @@ import (
 	"mpn/internal/cloudsync"
 	"mpn/internal/gdrive"
 	"mpn/internal/installer"
-	"mpn/internal/remote"
 	"mpn/internal/site"
 	"mpn/internal/store"
 )
@@ -76,7 +75,7 @@ func cloudConnected() string {
 	if _, err := cloudsync.LoadConfig(cloudsync.ConfigFile); err == nil {
 		return "gdrive"
 	}
-	if _, err := remote.LoadSaved(remote.SettingsFile); err == nil {
+	if _, err := cloudprov.LoadSaved(cloudprov.SettingsFile); err == nil {
 		return "rclone"
 	}
 	return ""
@@ -97,16 +96,12 @@ func openRemote(ctx context.Context) (cloudsync.Remote, context.Context) {
 		cli := &gdrive.Client{EP: gdrive.Google, ClientID: cfg.ClientID, ClientSecret: cfg.ClientSecret, RefreshToken: cfg.RefreshToken}
 		return &gdrive.PathRemote{C: cli, Root: cfg.RootID}, ctx
 	}
-	saved, err := remote.LoadSaved(remote.SettingsFile)
+	saved, err := cloudprov.LoadSaved(cloudprov.SettingsFile)
 	if errors.Is(err, os.ErrNotExist) {
 		fail(errors.New("cloud-not-connected: connect a storage first"))
 	}
 	fail(err)
-	ctx, err = remote.Setup(ctx, remote.ConfigFile)
-	fail(err)
-	r, err := remote.Open(ctx, saved.Root())
-	fail(err)
-	return r, ctx
+	return openRclone(ctx, saved)
 }
 
 func readCloudState(st *store.Store, name string) *cloudsync.State {
@@ -137,6 +132,8 @@ func runCloud(args []string) {
 	asJSON := fs.Bool("json", false, "status: print JSON")
 	apply := fs.Bool("apply", false, "change this machine and contact the storage (Linux, root); otherwise only check")
 	_ = fs.Parse(args[1:])
+	// The copy through rclone runs in mpn-cloud; this program does not carry rclone, which would make every other command slow to start.
+	delegateCloud(sub, args)
 
 	switch sub {
 	case "providers": // needs no database: the form of the panel is drawn from this
@@ -154,7 +151,7 @@ func runCloud(args []string) {
 		s := cloudStatus{}
 		if cfg, err := cloudsync.LoadConfig(cloudsync.ConfigFile); err == nil {
 			s.Connected, s.Kind, s.Email, s.Where = true, "gdrive", cfg.Email, "Google Drive: "+cloudprov.RootName
-		} else if saved, err := remote.LoadSaved(remote.SettingsFile); err == nil {
+		} else if saved, err := cloudprov.LoadSaved(cloudprov.SettingsFile); err == nil {
 			s.Connected, s.Kind, s.Where, s.Shown, s.Bucket, s.Folder = true, saved.Type, describe(saved), saved.Shown, saved.Bucket, saved.Folder
 		}
 		if p, err := cloudsync.LoadPending(cloudsync.PendingFile); err == nil && !p.Expired(time.Now()) {
@@ -232,7 +229,7 @@ func runCloud(args []string) {
 	}
 }
 
-func describe(s remote.Saved) string {
+func describe(s cloudprov.Saved) string {
 	where := s.Root()
 	switch s.Type {
 	case "s3":
@@ -266,28 +263,11 @@ func cloudConfigure(apply bool) {
 	requireLinuxRoot()
 	requireDisconnected()
 	fail(os.MkdirAll(cloudScratch, 0o700))
-	// The remote is written to a file of its own and tested there; only a remote that works replaces the real one.
-	trial := remote.ConfigFile + ".new"
-	trialSettings := remote.SettingsFile + ".new"
-	defer os.Remove(trial)
-	defer os.Remove(trialSettings)
-	_ = os.Remove(trial)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	ctx, err = remote.Setup(ctx, trial)
-	fail(err)
-	fail(remote.Write(in, trialSettings))
-	r, err := remote.Open(ctx, cloudprov.Root(in.Bucket, in.Folder))
-	if err != nil {
-		fail(fmt.Errorf("cloud-test-connect: %w", err))
-	}
-	if err := r.Test(ctx, cloudScratch); err != nil {
-		fail(err)
-	}
-	fail(os.Rename(trial, remote.ConfigFile))
-	fail(os.Rename(trialSettings, remote.SettingsFile))
+	fail(configureRclone(ctx, in))
 	fail(installCloudDropIn())
-	saved, _ := remote.LoadSaved(remote.SettingsFile)
+	saved, _ := cloudprov.LoadSaved(cloudprov.SettingsFile)
 	fmt.Printf("connected; the backups go to %s\n", describe(saved))
 }
 
@@ -344,7 +324,7 @@ func cloudDisconnect() {
 		}
 	}
 	fail(runPlanQuiet(installer.Plan{{Name: "forget the connection", Actions: []installer.Action{
-		installer.Run("rm", "-f", cloudsync.ConfigFile, cloudsync.PendingFile, remote.ConfigFile, remote.SettingsFile, cloudDropIn),
+		installer.Run("rm", "-f", cloudsync.ConfigFile, cloudsync.PendingFile, cloudprov.RcloneConfigFile, cloudprov.SettingsFile, cloudDropIn),
 		installer.Run("systemctl", "daemon-reload"),
 	}}}))
 	fmt.Println("disconnected; files already in the storage stay there")

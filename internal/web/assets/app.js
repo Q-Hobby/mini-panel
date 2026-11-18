@@ -156,3 +156,20 @@ document.addEventListener('click', function (e) {
   var go = document.querySelector('[data-autonav]');
   if (go) setTimeout(function () { location.href = go.href; }, 50);
 })();
+
+// The search box of the off-site storage list hides the storage whose name does not match. Without the script every storage stays shown.
+document.querySelectorAll('[data-cld-search]').forEach(function (box) {
+  var list = document.querySelector('[data-cld-list]');
+  if (!list) return;
+  var empty = list.querySelector('[data-cld-empty]');
+  box.addEventListener('input', function () {
+    var words = box.value.toLowerCase().split(/\s+/).filter(Boolean), shown = 0;
+    list.querySelectorAll('[data-cld-item]').forEach(function (item) {
+      var text = (item.getAttribute('data-cld-item') + ' ' + item.querySelector('summary').textContent).toLowerCase();
+      var hit = words.every(function (w) { return text.indexOf(w) >= 0; });
+      item.hidden = !hit;
+      if (hit) shown++;
+    });
+    if (empty) empty.hidden = shown > 0;
+  });
+});

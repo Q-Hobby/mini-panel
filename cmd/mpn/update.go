@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"errors"
 	"flag"
@@ -31,6 +32,7 @@ func insecureLocal() *http.Transport {
 
 const (
 	mpnPrev       = "/usr/local/bin/mpn.prev"
+	mpnCloudFile  = "/usr/local/bin/mpn-cloud"
 	updateUnit    = "mpn-update"
 	updateLogPath = "/var/lib/mpn-web/update.log" // the panel shows it; owned by mpn-web
 )
@@ -120,33 +122,49 @@ func installRelease(ctx context.Context, target, current update.Version, allowOl
 	if err != nil {
 		return fmt.Errorf("the release has no signature (%v); releases before 1.2.0 are not signed, install them with install.sh", err)
 	}
-	bin, err := fetch(ctx, base+asset, 256<<20)
-	if err != nil {
-		return err
-	}
-	v, err := update.Check(update.ReleaseKey, sums, sig, bin, asset, current, allowOlder)
+	tmp := mpnPath + ".new"
+	v, err := fetchChecked(ctx, base, asset, tmp, sums, sig, current, allowOlder)
 	if err != nil {
 		return err
 	}
 	if v != target {
+		_ = os.Remove(tmp)
 		return fmt.Errorf("the signature is for %s, not %s", v, target)
-	}
-	say("signature and checksum are good")
-
-	tmp := mpnPath + ".new"
-	if err := os.WriteFile(tmp, bin, 0o755); err != nil {
-		return err
 	}
 	if out, err := exec.Command(tmp, "version").Output(); err != nil || strings.TrimSpace(string(out)) != v.String() {
 		_ = os.Remove(tmp)
 		return fmt.Errorf("the new program does not run here (%v %q)", err, strings.TrimSpace(string(out)))
 	}
+	// From 1.2.0 the copy to off-site storage is a program of its own, mpn-cloud, built with rclone. A release without it (none
+	// is signed before 1.2.0) leaves the one in place alone.
+	cloudAsset := "mpn-cloud_linux_" + runtime.GOARCH
+	cloudTmp := mpnCloudFile + ".new"
+	hasCloud := strings.Contains(string(sums), " "+cloudAsset+"\n") || strings.Contains(string(sums), "*"+cloudAsset+"\n")
+	if hasCloud {
+		say("downloading %s", cloudAsset)
+		if _, err := fetchChecked(ctx, base, cloudAsset, cloudTmp, sums, sig, current, allowOlder); err != nil {
+			_ = os.Remove(tmp)
+			return err
+		}
+		if out, err := exec.Command(cloudTmp, "version").Output(); err != nil || strings.TrimSpace(string(out)) != v.String() {
+			_ = os.Remove(tmp)
+			_ = os.Remove(cloudTmp)
+			return fmt.Errorf("the new %s does not run here (%v %q)", cloudAsset, err, strings.TrimSpace(string(out)))
+		}
+	}
+	say("signature and checksum are good")
 	if err := copyFile(mpnPath, mpnPrev); err != nil {
 		_ = os.Remove(tmp)
+		_ = os.Remove(cloudTmp)
 		return fmt.Errorf("could not keep the old program: %w", err)
 	}
 	if err := os.Rename(tmp, mpnPath); err != nil {
 		return err
+	}
+	if hasCloud {
+		if err := os.Rename(cloudTmp, mpnCloudFile); err != nil {
+			return err
+		}
 	}
 	say("the program is %s; the old one is kept as %s", v, mpnPrev)
 
@@ -214,6 +232,86 @@ func latestTag(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("could not find the latest release (%s)", resp.Status)
 	}
 	return loc[i+5:], nil
+}
+
+// ensureMpnCloud downloads mpn-cloud of this very release when it is missing or of another version. An mpn update of 1.2.0 or older
+// knows only one program, then runs "mpn panel migrate" with the new one, which calls this; so does install.sh on an old release.
+func ensureMpnCloud() error {
+	if runtime.GOOS != "linux" || os.Geteuid() != 0 {
+		return nil
+	}
+	if out, err := exec.Command(mpnCloudFile, "version").Output(); err == nil && strings.TrimSpace(string(out)) == version {
+		return nil
+	}
+	v, err := update.ParseVersion(version)
+	if err != nil {
+		return nil // a build of my own: there is no release to take mpn-cloud from
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	base := "https://github.com/" + update.Repo + "/releases/download/v" + v.String() + "/"
+	sums, err := fetch(ctx, base+"SHA256SUMS", 64<<10)
+	if err != nil {
+		return err
+	}
+	sig, err := fetch(ctx, base+"SHA256SUMS.minisig", 4<<10)
+	if err != nil {
+		return err
+	}
+	asset := "mpn-cloud_linux_" + runtime.GOARCH
+	tmp := mpnCloudFile + ".new"
+	got, err := fetchChecked(ctx, base, asset, tmp, sums, sig, v, false)
+	if err != nil {
+		return err
+	}
+	if got != v {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("the signature of %s is for %s, not %s", asset, got, v)
+	}
+	if err := os.Rename(tmp, mpnCloudFile); err != nil {
+		return err
+	}
+	fmt.Printf("installed %s %s\n", mpnCloudFile, v)
+	return nil
+}
+
+// fetchChecked downloads one program of the release to path (0755), hashing it on the way, and checks it against the signed
+// SHA256SUMS. A file that does not pass is removed.
+func fetchChecked(ctx context.Context, base, asset, path string, sums, sig []byte, current update.Version, allowOlder bool) (update.Version, error) {
+	req, _ := http.NewRequestWithContext(ctx, "GET", base+asset, nil)
+	resp, err := (&http.Client{Timeout: 10 * time.Minute}).Do(req)
+	if err != nil {
+		return update.Version{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return update.Version{}, fmt.Errorf("%s: %s", base+asset, resp.Status)
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
+	if err != nil {
+		return update.Version{}, err
+	}
+	h := sha256.New()
+	const max = 512 << 20
+	n, err := io.Copy(io.MultiWriter(f, h), io.LimitReader(resp.Body, max+1))
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil && n > max {
+		err = fmt.Errorf("%s is larger than %d bytes", asset, max)
+	}
+	if err != nil {
+		_ = os.Remove(path)
+		return update.Version{}, err
+	}
+	var sum [32]byte
+	copy(sum[:], h.Sum(nil))
+	v, err := update.CheckSum(update.ReleaseKey, sums, sig, sum, asset, current, allowOlder)
+	if err != nil {
+		_ = os.Remove(path)
+		return update.Version{}, err
+	}
+	return v, nil
 }
 
 func fetch(ctx context.Context, url string, max int64) ([]byte, error) {

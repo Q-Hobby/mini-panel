@@ -40,6 +40,7 @@ func (e fmEnv) send(t *testing.T, method, target string, body io.Reader, ctype s
 	t.Helper()
 	r, _ := http.NewRequest(method, e.url+target, body)
 	r.Header.Set("Cookie", e.cookie)
+	r.Header.Set("Accept-Language", "vi") // the messages checked here are the Vietnamese ones
 	if method == http.MethodPost {
 		r.Header.Set("Origin", e.url)
 	}

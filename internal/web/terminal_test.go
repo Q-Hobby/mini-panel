@@ -64,6 +64,9 @@ func (e termEnv) dial(t *testing.T, path string, header http.Header) (*websocket
 	if header.Get("Cookie") == "" {
 		header.Set("Cookie", e.cookie)
 	}
+	if header.Get("Accept-Language") == "" {
+		header.Set("Accept-Language", "vi") // the messages checked here are the Vietnamese ones
+	}
 	return websocket.Dial(ctx, "ws"+strings.TrimPrefix(e.url, "http")+path, &websocket.DialOptions{HTTPHeader: header})
 }
 

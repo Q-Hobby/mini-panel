@@ -37,7 +37,7 @@ Tùy chọn: `MPN_VERSION=1.0.2` để cài một bản cố định, `MPN_PANEL
 - **Sao lưu:** hằng đêm, giữ 7 bản, khôi phục từ giao diện, chép ra ngoài máy chủ qua rclone: Google Drive, S3 (Cloudflare R2, AWS, Wasabi), Backblaze B2, SFTP, WebDAV hoặc FTP. MANIFEST của mỗi bản được ký bằng khoá riêng của máy.
 - **Bảo mật:** tường lửa nftables không khóa nhầm SSH và cổng panel, ModSecurity với OWASP CRS, fail2ban, xác thực hai bước (TOTP), địa chỉ thật của khách khi site đi qua Cloudflare.
 - **Giám sát:** CPU, bộ nhớ, tải, mạng, ổ đĩa và trạng thái dịch vụ trong 24 giờ.
-- **Cập nhật:** từ trang Cài đặt hoặc `mpn update -apply`; bản phát hành chỉ được cài khi chữ ký khớp với khoá dựng sẵn trong chương trình.
+- **Cập nhật:** từ mục **Cập nhật** trên menu chính hoặc `mpn update -apply`; bản phát hành chỉ được cài khi chữ ký khớp với khoá dựng sẵn trong chương trình.
 - **Giao diện** tiếng Anh, tiếng Việt và tiếng Trung giản thể, sáng và tối.
 
 ## Cách hoạt động
@@ -69,7 +69,7 @@ Thêm `-h` sau lệnh con để xem các cờ. Lệnh thay đổi máy mặc đ�
 
 | Thứ | Nơi |
 |---|---|
-| Tệp chạy | `/usr/local/bin/mpn` |
+| Tệp chạy | `/usr/local/bin/mpn`, và `/usr/local/bin/mpn-cloud` (cùng chương trình kèm rclone, để chép ra ngoài máy chủ) |
 | Cơ sở dữ liệu của panel | `/var/lib/mpn/mpn.db` |
 | Chứng chỉ của từng site | `/etc/mpn/certs/<site>/` |
 | Log nginx của từng site | `/var/log/mpn/sites/<site>/` |

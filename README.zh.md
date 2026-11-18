@@ -37,7 +37,7 @@ curl -fsSL https://mpanel.biz/install.sh | sh
 - **备份：** 每晚备份，保留 7 份，可在界面中恢复，可通过 rclone 复制到异地：Google Drive、S3（Cloudflare R2、AWS、Wasabi）、Backblaze B2、SFTP、WebDAV 或 FTP。每份备份的 MANIFEST 都用本机专属密钥签名。
 - **安全：** 不会误锁 SSH 和面板端口的 nftables 防火墙、带 OWASP CRS 的 ModSecurity、fail2ban、双因素认证（TOTP）、经 Cloudflare 代理时获取访客真实地址。
 - **监控：** 24 小时内的 CPU、内存、负载、网络、磁盘和服务状态。
-- **更新：** 在“设置”页或用 `mpn update -apply`；只有签名与程序内置密钥相符的发布版本才会安装。
+- **更新：** 在主菜单的 **更新** 或用 `mpn update -apply`；只有签名与程序内置密钥相符的发布版本才会安装。
 - **界面** 支持英语、越南语和简体中文，浅色和深色主题。
 
 ## 工作原理
@@ -69,7 +69,7 @@ mpn version | update | tune | plan | site | db | backup | cron | firewall | secu
 
 | 项目 | 位置 |
 |---|---|
-| 可执行文件 | `/usr/local/bin/mpn` |
+| 可执行文件 | `/usr/local/bin/mpn`，以及 `/usr/local/bin/mpn-cloud`（带 rclone 的同一程序，用于异地复制） |
 | 面板数据库 | `/var/lib/mpn/mpn.db` |
 | 各站点证书 | `/etc/mpn/certs/<站点>/` |
 | 各站点 nginx 日志 | `/var/log/mpn/sites/<站点>/` |

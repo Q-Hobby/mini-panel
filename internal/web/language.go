@@ -16,7 +16,7 @@ func translate(language, key string, args ...any) string {
 	if text, ok := catalogs[language][key]; ok {
 		return formatText(text, args...)
 	}
-	return T(key, args...)
+	return T(key, args...) // the default language, then Vietnamese, in which every key exists
 }
 
 func translatorFor(language string) translator {
@@ -27,9 +27,9 @@ func requestLanguage(r *http.Request) string {
 	if c, err := r.Cookie("mpn_language"); err == nil && supportedLanguage(c.Value) {
 		return c.Value
 	}
-	// Vietnamese remains the default. Match the browser's supported preference,
+	// English is the default. Match the browser's supported preference,
 	// honoring quality weights and ignoring explicitly excluded languages.
-	best, quality := "vi", 0.0
+	best, quality := defaultLanguage, 0.0
 	for _, preference := range strings.Split(r.Header.Get("Accept-Language"), ",") {
 		parts := strings.Split(strings.TrimSpace(preference), ";")
 		language := strings.ToLower(strings.Split(parts[0], "-")[0])
@@ -61,8 +61,15 @@ func writerLanguage(w io.Writer) string {
 	if h, ok := w.(interface{ Header() http.Header }); ok && supportedLanguage(h.Header().Get("Content-Language")) {
 		return h.Header().Get("Content-Language")
 	}
-	return "vi"
+	return defaultLanguage
 }
+
+// defaultLanguage is the language of a visitor whose browser asks for none the panel has, and of a page drawn outside a request.
+const defaultLanguage = "en"
+
+// globalLanguage is the language of T, the translator of text made outside a request. It is the default language; the tests of this
+// package, written when Vietnamese was the default, set it to "vi".
+var globalLanguage = defaultLanguage
 
 func translatorForWriter(w io.Writer) translator { return translatorFor(writerLanguage(w)) }
 

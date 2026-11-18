@@ -8,11 +8,11 @@ import (
 
 func TestTheUpdateButtonAsksTheHelperAndOnlyWithAVersion(t *testing.T) {
 	h, f, c, csrf := setupWith(t, byOp(map[string]string{"panel.update": "the update has started in the background"}), nil)
-	page := do(h, "GET", "/settings", nil, cookie(c)).Body.String()
-	if !strings.Contains(page, `action="/settings/update"`) {
-		t.Fatal("the settings page has no update form")
+	page := do(h, "GET", "/update", nil, cookie(c)).Body.String()
+	if !strings.Contains(page, `action="/update"`) || !strings.Contains(page, `href="/update"`) {
+		t.Fatal("the update page has no update form or the menu has no link to it")
 	}
-	do(h, "POST", "/settings/update", url.Values{"csrf": {csrf}, "version": {"1.2.1"}}, cookie(c))
+	do(h, "POST", "/update", url.Values{"csrf": {csrf}, "version": {"1.2.1"}}, cookie(c))
 	var got []string
 	for _, q := range f.reqs {
 		if q.Op == "panel.update" {
@@ -24,7 +24,7 @@ func TestTheUpdateButtonAsksTheHelperAndOnlyWithAVersion(t *testing.T) {
 	}
 	n := len(f.reqs)
 	for _, v := range []string{"1.2.1; reboot", "../x", "latest", "1.2"} {
-		do(h, "POST", "/settings/update", url.Values{"csrf": {csrf}, "version": {v}}, cookie(c))
+		do(h, "POST", "/update", url.Values{"csrf": {csrf}, "version": {v}}, cookie(c))
 	}
 	for _, q := range f.reqs[n:] {
 		if q.Op == "panel.update" {
@@ -33,7 +33,7 @@ func TestTheUpdateButtonAsksTheHelperAndOnlyWithAVersion(t *testing.T) {
 	}
 	// Without the form token nothing happens.
 	n = len(f.reqs)
-	do(h, "POST", "/settings/update", url.Values{"version": {"1.2.1"}}, cookie(c))
+	do(h, "POST", "/update", url.Values{"version": {"1.2.1"}}, cookie(c))
 	if len(f.reqs) != n {
 		t.Error("an update without the form token reached the helper")
 	}

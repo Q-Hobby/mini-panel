@@ -22,7 +22,9 @@ jobs:
           go-version-file: go.mod
 
       - name: Vet
-        run: go vet ./...
+        run: |
+          go vet ./...
+          go vet -tags cloud ./cmd/mpn
 
       # The web mail the panel installs is pinned by URL and SHA-256 in internal/mail/webmail.go. A release whose pin
       # does not match the published mpn-mail binary would fail on every machine, so the release stops here instead.
@@ -45,12 +47,18 @@ jobs:
           set -euo pipefail
           VERSION="${GITHUB_REF_NAME#v}"
           mkdir -p release
+          # mpn is built without rclone so that it starts fast (the panel runs it several times per page); mpn-cloud is the same
+          # program with rclone, and mpn hands the commands that talk to off-site storage over to it.
           for arch in amd64 arm64; do
             CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" \
               -o "release/mpn_linux_${arch}" ./cmd/mpn
+            CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -tags cloud -trimpath -ldflags "-s -w -X main.version=${VERSION}" \
+              -o "release/mpn-cloud_linux_${arch}" ./cmd/mpn
           done
           [ "$(./release/mpn_linux_amd64 version)" = "$VERSION" ] || { echo "::error::binary version does not match the tag"; exit 1; }
-          cd release && sha256sum mpn_linux_* > SHA256SUMS && cat SHA256SUMS
+          [ "$(./release/mpn-cloud_linux_amd64 version)" = "$VERSION" ] || { echo "::error::mpn-cloud version does not match the tag"; exit 1; }
+          if go version -m release/mpn_linux_amd64 | grep -q rclone; then echo "::error::mpn must not contain rclone"; exit 1; fi
+          cd release && sha256sum mpn_linux_* mpn-cloud_linux_* > SHA256SUMS && cat SHA256SUMS
 
       # mpn update trusts a release only when SHA256SUMS is signed with the key built into the program (internal/update). The
       # trusted comment names the version, so an old release cannot be passed off as a new one. The secret key is the secret

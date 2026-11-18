@@ -13,6 +13,13 @@ import (
 // panelMigrate brings a machine installed by an earlier version up to date with what a first install of this one writes. install.sh
 // runs it after it has replaced the program. It does nothing on a machine that is up to date, and changes nothing without -apply.
 func panelMigrate(st *store.Store, apply bool) {
+	if apply {
+		// The copy to off-site storage needs mpn-cloud beside mpn (from 1.2.0). Failing to fetch it stops only that copy, so it
+		// is said and the rest goes on.
+		if err := ensureMpnCloud(); err != nil {
+			fmt.Fprintf(os.Stderr, "could not install %s: %v; the copy to off-site storage will not work until mpn update -apply runs\n", mpnCloudFile, err)
+		}
+	}
 	unit, err := os.ReadFile(installer.WebUnitFile)
 	if os.IsNotExist(err) {
 		fmt.Println("the web panel is not installed on this machine; nothing to do")

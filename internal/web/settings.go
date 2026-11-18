@@ -164,7 +164,7 @@ func readUpdateLog() string {
 func (s *Server) updateCheck(w http.ResponseWriter, r *http.Request, ss webauth.Session) {
 	T := translatorForWriter(w)
 	res := s.runText(T, T("set.up.check.title"), ctl.Request{Op: "panel.updatecheck"})
-	res.Back = "/settings"
+	res.Back = "/update"
 	s.finish(w, r, res)
 }
 
@@ -174,12 +174,18 @@ func (s *Server) updateStart(w http.ResponseWriter, r *http.Request, ss webauth.
 	T := translatorForWriter(w)
 	v := strings.TrimSpace(r.PostFormValue("version"))
 	if v != "" && !versionText.MatchString(v) {
-		s.refuseTo(w, ss, "/settings", T("err.nothing"), T("set.up.err.version"))
+		s.refuseTo(w, ss, "/update", T("err.nothing"), T("set.up.err.version"))
 		return
 	}
 	res := s.runText(T, T("set.up.start.title"), ctl.Request{Op: "panel.update", Version: v})
-	res.Back = "/settings"
+	res.Back = "/update"
 	s.finish(w, r, res)
+}
+
+// updatePage shows the version that runs, the buttons to check and update, and what the last update wrote.
+func (s *Server) updatePage(w http.ResponseWriter, r *http.Request, ss webauth.Session) {
+	v := settingsView{Version: Version, UpdateLog: readUpdateLog()}
+	s.show(w, http.StatusOK, ss, view{Page: "update", Settings: &v, Notice: s.takeFlash(s.sessionToken(r))})
 }
 
 var versionText = regexp.MustCompile(`^\d{1,4}\.\d{1,4}\.\d{1,4}$`)
@@ -226,6 +232,10 @@ func (s *Server) settingsPages(mux *http.ServeMux) {
 	mux.HandleFunc("POST /settings/password", s.auth(s.changePassword))
 	mux.HandleFunc("POST /settings/2fa/enable", s.auth(s.twoFAEnable))
 	mux.HandleFunc("POST /settings/2fa/disable", s.auth(s.twoFADisable))
+	mux.HandleFunc("GET /update", s.auth(s.updatePage))
+	mux.HandleFunc("POST /update/check", s.auth(s.updateCheck))
+	mux.HandleFunc("POST /update", s.auth(s.updateStart))
+	// The addresses of 1.2.0, kept so that a form left open in a tab still works.
 	mux.HandleFunc("POST /settings/update/check", s.auth(s.updateCheck))
 	mux.HandleFunc("POST /settings/update", s.auth(s.updateStart))
 	mux.HandleFunc("POST /login/2fa", s.loginSecondStep)
@@ -241,8 +251,6 @@ func (s *Server) sessionToken(r *http.Request) string {
 // showSettings draws the page. The account is read again each time, so what the page says is what is stored.
 func (s *Server) showSettings(w http.ResponseWriter, r *http.Request, ss webauth.Session, status int, v settingsView, notice *result) {
 	v.Min = webauth.MinPasswordLen
-	v.Version = Version
-	v.UpdateLog = readUpdateLog()
 	if acct, err := s.Account(); err == nil {
 		v.TOTPOn = acct.TOTP != ""
 	}

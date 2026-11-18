@@ -55,6 +55,11 @@ func (v Version) Less(w Version) bool {
 // "mpn_linux_amd64"). The trusted comment of the signature names the version ("mpn 1.2.0"), so an old signed release cannot be
 // passed off as a new one, and that version must not be older than current unless allowOlder is set. It returns the version.
 func Check(key string, sums, sig, binary []byte, asset string, current Version, allowOlder bool) (Version, error) {
+	return CheckSum(key, sums, sig, sha256.Sum256(binary), asset, current, allowOlder)
+}
+
+// CheckSum is Check for a file already hashed while it was written to disk, so a large program need not be held in memory.
+func CheckSum(key string, sums, sig []byte, got [32]byte, asset string, current Version, allowOlder bool) (Version, error) {
 	k, err := minisig.ParsePublicKey(key)
 	if err != nil {
 		return Version{}, err
@@ -87,7 +92,6 @@ func Check(key string, sums, sig, binary []byte, asset string, current Version, 
 	if want == "" {
 		return Version{}, fmt.Errorf("SHA256SUMS has no line for %s", asset)
 	}
-	got := sha256.Sum256(binary)
 	if hex.EncodeToString(got[:]) != strings.ToLower(want) {
 		return Version{}, errors.New("the program does not match its line in SHA256SUMS")
 	}

@@ -26,8 +26,8 @@ type page struct {
 var pages = map[string]page{}
 
 func init() {
-	for name, shell := range map[string]string{"login": "auth", "setup": "auth", "notfound": "auth", "sites": "base", "result": "base", "confirm": "base", "sitenew": "base", "site": "base", "fileedit": "base", "filerename": "base", "pmaopen": "base", "firewall": "base", "security": "base", "email": "base", "cloudlist": "base", "monitor": "base", "services": "base", "settings": "base", "emailcf": "base"} {
-		t := template.Must(template.New(name).Funcs(template.FuncMap{"T": T, "stamp": stampText, "asset": assetURL, "siteMenu": siteMenu, "dict": dict, "lang": func() string { return "vi" }, "langInfo": func() language { return languages[0] }, "languages": func() []language { return languages }, "runtime": func(row siteRow) string { return row.Runtime() }}).
+	for name, shell := range map[string]string{"login": "auth", "setup": "auth", "notfound": "auth", "sites": "base", "result": "base", "confirm": "base", "sitenew": "base", "site": "base", "fileedit": "base", "filerename": "base", "pmaopen": "base", "firewall": "base", "security": "base", "email": "base", "cloudlist": "base", "monitor": "base", "services": "base", "settings": "base", "update": "base", "emailcf": "base"} {
+		t := template.Must(template.New(name).Funcs(template.FuncMap{"T": T, "stamp": stampText, "asset": assetURL, "siteMenu": siteMenu, "dict": dict, "lang": func() string { return defaultLanguage }, "langInfo": func() language { return languageOf(defaultLanguage) }, "languages": func() []language { return languages }, "runtime": func(row siteRow) string { return row.Runtime() }}).
 			ParseFS(templateFS, append([]string{"templates/" + shell + ".html", "templates/" + name + ".html", "templates/language.html", "templates/footer.html"}, extraTemplates[name]...)...))
 		pages[name] = page{t, shell}
 	}

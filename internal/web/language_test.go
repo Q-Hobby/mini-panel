@@ -53,8 +53,8 @@ func TestLanguageCatalogsHaveMatchingKeysAndFormats(t *testing.T) {
 
 func TestLanguageSelection(t *testing.T) {
 	for _, tc := range []struct{ browser, cookie, want string }{
-		{"", "", "vi"}, {"en-US,en;q=0.9,vi;q=0.5", "", "en"}, {"vi;q=0.9,en;q=0.2", "", "vi"},
-		{"en;q=0", "", "vi"}, {"en;q=bad", "", "vi"}, {"fr,en;q=0.8", "", "en"},
+		{"", "", "en"}, {"en-US,en;q=0.9,vi;q=0.5", "", "en"}, {"vi;q=0.9,en;q=0.2", "", "vi"},
+		{"en;q=0", "", "en"}, {"vi;q=0", "", "en"}, {"fr,de", "", "en"}, {"fr,vi;q=0.8", "", "vi"},
 		{"en", "vi", "vi"}, {"vi", "en", "en"}, {"vi", "invalid", "vi"},
 	} {
 		r := httptest.NewRequest("GET", "/", nil)

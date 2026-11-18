@@ -1,0 +1,36 @@
+{{define "content"}}
+{{$v := .Settings}}
+<div class="mb-6">
+  <h1 class="h-page">{{T "set.up.title"}}</h1>
+  <p class="mt-1 text-sm text-muted-foreground">{{T "set.up.sub"}}</p>
+</div>
+{{if .Notice}}<div role="status" class="alert-ok mb-6"><span>{{.Notice.Title}}</span></div>{{end}}
+
+<section class="card p-6" aria-labelledby="up-h">
+  <div class="flex flex-wrap items-start justify-between gap-3">
+    <h2 id="up-h" class="h-section">{{T "set.up.current"}}</h2>
+    <span class="badge-gray font-mono" data-version>{{$v.Version}}</span>
+  </div>
+  <div class="mt-5 flex flex-wrap items-end gap-3">
+    <form method="post" action="/update/check">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <button class="btn-secondary">{{T "set.up.check"}}</button>
+    </form>
+    <form method="post" action="/update" class="flex flex-wrap items-end gap-3">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <div>
+        <label for="up-ver" class="label">{{T "set.up.version"}}</label>
+        <input id="up-ver" name="version" class="field w-36 font-mono" placeholder="{{T "set.up.latest"}}" pattern="[0-9]+\.[0-9]+\.[0-9]+" maxlength="14" autocomplete="off">
+      </div>
+      <button class="btn-primary">{{T "set.up.btn"}}</button>
+    </form>
+  </div>
+  <p class="hint">{{T "set.up.hint"}}</p>
+  {{if $v.UpdateLog}}
+  <details class="mt-4" open>
+    <summary class="cursor-pointer text-sm font-medium">{{T "set.up.log"}}</summary>
+    <pre class="mt-2 max-h-64 overflow-auto rounded-md border border-border bg-muted p-3 font-mono text-xs">{{$v.UpdateLog}}</pre>
+  </details>
+  {{end}}
+</section>
+{{end}}

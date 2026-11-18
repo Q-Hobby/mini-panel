@@ -61,6 +61,9 @@ func do(h http.Handler, method, target string, form url.Values, opts ...opt) *ht
 	if method == http.MethodPost {
 		r.Header.Set("Origin", "http://localhost")
 	}
+	// Most tests look for the Vietnamese text, which the panel showed by default before 1.2.0; English is the default now, so they
+	// ask for Vietnamese the way a browser does. A test that sets a cookie or another header still gets what it asks for.
+	r.Header.Set("Accept-Language", "vi")
 	for _, o := range opts {
 		o(r)
 	}

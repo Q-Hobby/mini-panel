@@ -37,7 +37,7 @@ Options: `MPN_VERSION=1.0.2` installs a fixed version, `MPN_PANEL_PORT=2610` cha
 - **Backups:** nightly, 7 kept, restore from the interface, copied off-site through rclone to Google Drive, S3 (Cloudflare R2, AWS, Wasabi), Backblaze B2, SFTP, WebDAV or FTP. Each MANIFEST is signed with the machine's own key.
 - **Security:** an nftables firewall that cannot lock out SSH or the panel port, ModSecurity with OWASP CRS, fail2ban, two-factor sign-in (TOTP), visitors' real addresses behind Cloudflare.
 - **Monitoring:** CPU, memory, load, network, disk and service status over 24 hours.
-- **Updates:** from the Settings page or `mpn update -apply`; a release is installed only when its signature matches the key built into the program.
+- **Updates:** from **Update** in the main menu or `mpn update -apply`; a release is installed only when its signature matches the key built into the program.
 - **Interface** in English, Vietnamese and Simplified Chinese, light and dark.
 
 ## How it works
@@ -69,7 +69,7 @@ Add `-h` after a subcommand to see its flags. Commands that change the machine o
 
 | What | Where |
 |---|---|
-| Binary | `/usr/local/bin/mpn` |
+| Binary | `/usr/local/bin/mpn`, and `/usr/local/bin/mpn-cloud` (the same program with rclone, for off-site copies) |
 | Panel database | `/var/lib/mpn/mpn.db` |
 | Certificates of each site | `/etc/mpn/certs/<site>/` |
 | nginx logs of each site | `/var/log/mpn/sites/<site>/` |

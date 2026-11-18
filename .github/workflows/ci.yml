@@ -25,7 +25,9 @@ jobs:
           [ -z "$out" ] || { echo "::error::not gofmt-formatted:"; echo "$out"; exit 1; }
 
       - name: Vet
-        run: go vet ./...
+        run: |
+          go vet ./...
+          go vet -tags cloud ./cmd/mpn
 
       # Some tests need root and a real filesystem (internal/safedir opens paths below folders other accounts own); they run as root
       # here so that what they check is what the root helper does on a server.

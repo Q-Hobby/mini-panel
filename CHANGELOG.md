@@ -4,6 +4,21 @@ All notable changes to Mini Panel are recorded here. Version numbers follow [Sem
 
 Translations: [Tiếng Việt](CHANGELOG.vi.md) · [中文](CHANGELOG.zh.md).
 
+## [1.2.1] - 2026-11-18
+
+### Fixed
+
+- The panel's pages were slower in 1.2.0, because rclone made the `mpn` program 109 MB and every start about 100 ms longer, and the panel starts `mpn` several times for each page. rclone now ships in a second program, `/usr/local/bin/mpn-cloud` (the same source built with rclone), which `mpn` runs only to connect a storage and to copy, list or fetch backups. `mpn` is 19 MB again and starts in 0.02 s instead of 0.18 s on a 1-vCPU server.
+- The off-site storage list showed translation keys such as `cld.kind.azureblob` for the storage generated from rclone's list. Each now shows its name, a description and a hint, and a search box filters the list.
+
+### Changed
+
+- Updating has its own page, **Update** in the main menu, instead of a section of Settings.
+- The panel and the docs site are in English by default. A browser that asks for Vietnamese or Chinese gets it, and the language menu still switches. Old docs addresses under `/en/` lead to the new ones.
+
+### Upgrade notes
+
+- `mpn update`, the panel's Update button and the installer fetch both programs. A machine updated by 1.2.0, which knows only `mpn`, gets `mpn-cloud` when the new `mpn` runs `mpn panel migrate -apply` at the end of the update.
 ## [1.2.0] - 2026-11-18
 
 ### Added
