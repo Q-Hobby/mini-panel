@@ -21,7 +21,7 @@ curl -fsSL https://mpanel.biz/install.sh | sh
 
 安装程序会检查操作系统，从 GitHub 最新发布版本下载 `mpn`，并与 `SHA256SUMS` 比对 SHA-256。随后安装 nginx 1.28.3 及 PageSpeed 模块，并在 2610 端口安装使用自签名证书的面板。只有在“安全”标签页中开启 Web 应用防火墙时才会安装 ModSecurity 模块。安装程序**不会**安装 PHP、Node.js 或数据库，这些可以稍后在面板的“服务”页面中选择。
 
-安装完成后，打开输出的设置链接（`https://<IP>:2610/setup?k=…`）创建管理员账户。该链接带有一次性密钥，在账户创建之前有效；`mpn web setup-link` 可再次输出它。
+安装完成后，打开输出的设置链接（`https://<IP>:2610/setup?t=…`）创建管理员账户。该链接带有一次性密钥，在账户创建之前有效；`mpn web setup-link` 可再次输出它。
 
 可选项：`MPN_VERSION=1.0.2` 安装指定版本，`MPN_PANEL_PORT=2610` 修改面板端口。
 

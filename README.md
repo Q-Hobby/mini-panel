@@ -21,7 +21,7 @@ curl -fsSL https://mpanel.biz/install.sh | sh
 
 The installer checks the operating system, downloads `mpn` from the latest GitHub release and compares its SHA-256 with `SHA256SUMS`. It then installs nginx 1.28.3 with the PageSpeed module, and the panel on port 2610 with a self-signed certificate. The ModSecurity module is installed only when you turn on the web application firewall in the Security tab. The installer does **not** install PHP, Node.js or a database: you choose those later on the panel's Services page.
 
-When it finishes, open the setup link it prints (`https://<IP>:2610/setup?k=…`) to create the administrator account. The link carries a one-time key and works until the account exists; `mpn web setup-link` prints it again.
+When it finishes, open the setup link it prints (`https://<IP>:2610/setup?t=…`) to create the administrator account. The link carries a one-time key and works until the account exists; `mpn web setup-link` prints it again.
 
 Options: `MPN_VERSION=1.0.2` installs a fixed version, `MPN_PANEL_PORT=2610` changes the panel port.
 
