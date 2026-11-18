@@ -28,6 +28,7 @@ type secView struct {
 	F2BActive    bool      `json:"f2b_active"`
 	Ignore       []string  `json:"ignore"`
 	Jails        []secJail `json:"jails"`
+	CloudflareIP bool      `json:"cloudflare_ip"`
 	Error        string    `json:"-"`
 	Client       string    `json:"-"`
 	IgnoreText   string    `json:"-"`
@@ -39,12 +40,13 @@ func (s *Server) securityPages(mux *http.ServeMux) {
 	mux.HandleFunc("POST /security/waf", s.auth(s.secWAF))
 	mux.HandleFunc("POST /security/f2b", s.auth(s.secF2B))
 	mux.HandleFunc("POST /security/unban", s.auth(s.secUnban))
+	mux.HandleFunc("POST /security/cloudflare", s.auth(s.secCloudflare))
 	s.panelSSLRoutes(mux)
 }
 
 func (s *Server) securityPage(w http.ResponseWriter, r *http.Request, ss webauth.Session) {
 	T := translatorForWriter(w)
-	v := &secView{Client: s.clientKey(r)}
+	v := &secView{Client: s.clientAddr(r)}
 	v.Error = s.listText(T, ctl.Request{Op: "security.status"}, v)
 	v.IgnoreText = strings.Join(v.Ignore, "\n")
 	v.PSSL = s.loadPanelSSL(r)
@@ -83,8 +85,8 @@ func (s *Server) secF2B(w http.ResponseWriter, r *http.Request, ss webauth.Sessi
 	T := translatorForWriter(w)
 	on := r.PostFormValue("on") == "1"
 	list := strings.FieldsFunc(r.PostFormValue("ignore"), func(c rune) bool { return c == '\n' || c == '\r' || c == ',' || c == ' ' || c == '\t' })
-	if on && s.clientKey(r) != "" {
-		list = append(list, s.clientKey(r))
+	if on && s.clientAddr(r) != "" {
+		list = append(list, s.clientAddr(r))
 	}
 	clean, err := security.ValidIgnore(list)
 	if err != nil {
@@ -92,6 +94,12 @@ func (s *Server) secF2B(w http.ResponseWriter, r *http.Request, ss webauth.Sessi
 		return
 	}
 	s.secAction(w, r, ss, "act.sec.f2b", ctl.Request{Op: "security.f2b", SecOn: on, SecIgnore: clean})
+}
+
+// secCloudflare turns on or off the visitor addresses of Cloudflare: nginx then takes the address from CF-Connecting-IP, on
+// connections from Cloudflare's networks only.
+func (s *Server) secCloudflare(w http.ResponseWriter, r *http.Request, ss webauth.Session) {
+	s.secAction(w, r, ss, "act.sec.cf", ctl.Request{Op: "security.cloudflare", SecOn: r.PostFormValue("on") == "1"})
 }
 
 func (s *Server) secUnban(w http.ResponseWriter, r *http.Request, ss webauth.Session) {

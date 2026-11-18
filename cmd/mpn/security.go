@@ -18,14 +18,15 @@ import (
 )
 
 func securityUsage() {
-	fmt.Fprintln(os.Stderr, "usage: mpn security <status|waf|f2b|unban> [flags]   (add -h for the flags)")
+	fmt.Fprintln(os.Stderr, "usage: mpn security <status|waf|f2b|cloudflare|unban> [flags]   (add -h for the flags)")
 	os.Exit(2)
 }
 
 const (
-	settingWAF       = "waf"
-	settingF2B       = "f2b"
-	settingF2BIgnore = "f2b_ignore"
+	settingWAF        = "waf"
+	settingF2B        = "f2b"
+	settingF2BIgnore  = "f2b_ignore"
+	settingCloudflare = "cloudflare_real_ip"
 )
 
 func modsecModule() string { return distro.NginxModuleDir() + "/ngx_http_modsecurity_module.so" }
@@ -59,6 +60,7 @@ type secStatus struct {
 	F2BActive    bool       `json:"f2b_active"`
 	Ignore       []string   `json:"ignore"`
 	Jails        []jailInfo `json:"jails"`
+	CloudflareIP bool       `json:"cloudflare_ip"` // nginx takes the visitor's address from CF-Connecting-IP on Cloudflare's connections
 }
 
 func fileExists(p string) bool { _, err := os.Stat(p); return err == nil }
@@ -99,7 +101,7 @@ func readJail(name string) jailInfo {
 func currentSecurity(st *store.Store) secStatus {
 	mode, _ := st.Setting(settingWAF, security.ModeOff)
 	f2b, _ := st.Setting(settingF2B, "off")
-	s := secStatus{WAFMode: mode, F2BOn: f2b == "on", Ignore: ignoreList(st), Jails: []jailInfo{}}
+	s := secStatus{WAFMode: mode, F2BOn: f2b == "on", Ignore: ignoreList(st), Jails: []jailInfo{}, CloudflareIP: fileExists(security.CloudflareConf)}
 	s.WAFInstalled = fileExists(modsecModule()) && fileExists(security.CRSRules)
 	if s.WAFInstalled {
 		s.CRSVersion = strings.TrimSpace(out(5*time.Second, "sh", "-c", crsVersionScript()))
@@ -218,7 +220,7 @@ func runSecurity(args []string) {
 	db := fs.String("db", defaultDB, "database path")
 	asJSON := fs.Bool("json", false, "status: print JSON")
 	mode := fs.String("mode", "", "waf: off, detect or block")
-	on := fs.Bool("on", true, "f2b: turn fail2ban on (false turns it off)")
+	on := fs.Bool("on", true, "f2b, cloudflare: turn it on (false turns it off)")
 	ignore := fs.String("ignore", "", "f2b: addresses and networks that are never banned, separated by commas; empty keeps the saved list")
 	jail := fs.String("jail", "", "unban: the jail")
 	ip := fs.String("ip", "", "unban: the address")
@@ -281,6 +283,25 @@ func runSecurity(args []string) {
 		fail(st.SetSetting(settingF2BIgnore, strings.Join(list, ",")))
 		fail(st.SetSetting(settingF2B, "on"))
 		fmt.Println("fail2ban is on")
+	case "cloudflare":
+		word := map[bool]string{true: "on", false: "off"}[*on]
+		if !*apply {
+			fmt.Printf("# checked only. Would turn the visitor addresses of Cloudflare %s.\n", word)
+			return
+		}
+		requireLinuxRoot()
+		act := installer.WriteFile(security.CloudflareConf, security.CloudflareText(), 0o644)
+		if !*on {
+			act = installer.Run("rm", "-f", security.CloudflareConf)
+		}
+		if err := runPlanQuiet(installer.Plan{{Name: "cloudflare " + word, Actions: []installer.Action{act, installer.Run("nginx", "-t"), installer.ReloadNginx()}}}); err != nil {
+			if *on {
+				_ = os.Remove(security.CloudflareConf) // nginx -t refused it: leave nginx as it was
+			}
+			fail(err)
+		}
+		fail(st.SetSetting(settingCloudflare, word))
+		fmt.Printf("the visitor addresses of Cloudflare are %s\n", word)
 	case "unban":
 		fail(security.ValidJail(*jail))
 		addr, err := security.ValidAddr(*ip)

@@ -22,6 +22,8 @@ func init() {
 		"setup.badge":              "INITIAL SETUP",
 		"login.code.heading":       "Enter your verification code.",
 		"setup.password.confirm":   "Confirm password",
+		"setup.locked":             "Open this page with the setup link printed at the end of the installation. If you no longer have it, sign in to the server over SSH and run:",
+		"setup.locked.hint":        "The link works only until the first account is created.",
 		"notfound.home":            "Go to home page",
 		"auth.username":            "Username",
 		"auth.password.show.label": "Show password",

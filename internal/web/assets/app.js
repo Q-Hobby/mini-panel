@@ -5,7 +5,7 @@
 var SECOND_LEVEL = ['co', 'com', 'net', 'org', 'gov', 'edu', 'ac'];
 
 // The same rule as siteUserFrom in siteuser.go, so the form shows what the server would choose:
-// the top-level domain and a leading "www." go, so "datvu.io" gives "datvu" and "blog.example.com" gives "blog-example".
+// the top-level domain and a leading "www." go, so "acme.io" gives "acme" and "blog.example.com" gives "blog-example".
 function deriveUser(value, reserved) {
   var host = (value.trim().split(/[\s,]+/)[0] || '').toLowerCase().replace(/^www\./, '');
   var labels = host.split('.');

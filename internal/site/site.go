@@ -54,7 +54,7 @@ type Site struct {
 	Root        string   // absolute document root
 	Hostnames   []string // the first one is the primary name
 	PHPVersion  string   // php only
-	NodePort    int      // node and python: the port the app listens on (named for the first kind that used it)
+	NodePort    int      // node and python: the port the app listens on (named for the first kind that used it); 0 is a Unix socket (UsesSocket)
 	NodeVersion string   // node only, a major version such as "22"
 	PyVersion   string   // python only, a minor version such as "3.12"
 	Entry       string   // node and python: start script relative to Root, such as "server.js"; python also accepts "-m module"
@@ -157,7 +157,7 @@ func (s Site) Validate() error {
 			add("application %q is not one mpn installs", s.App)
 		}
 	case Node:
-		if !ValidAppPort(s.NodePort) {
+		if s.NodePort != 0 && !ValidAppPort(s.NodePort) {
 			add("node port %d must be between 1024 and 65535 and not one that the server itself uses", s.NodePort)
 		}
 		if !slices.Contains(NodeVersions, s.NodeVersion) {
@@ -170,7 +170,7 @@ func (s Site) Validate() error {
 			add("memory %d MB must be 0 (the default) or between 64 and 8192", s.MemMB)
 		}
 	case Python:
-		if !ValidAppPort(s.NodePort) {
+		if s.NodePort != 0 && !ValidAppPort(s.NodePort) {
 			add("python port %d must be between 1024 and 65535 and not one that the server itself uses", s.NodePort)
 		}
 		if !ValidPythonVersion(s.PyVersion) {
@@ -193,10 +193,24 @@ func (s Site) Validate() error {
 	return errors.Join(errs...)
 }
 
+// UsesSocket reports whether a node or python app listens on a Unix socket (AppSocket) instead of a TCP port: NodePort is 0. Sites
+// made from 1.2.0 on Debian and Ubuntu do; a socket cannot be reached by another account of the machine, a port on 127.0.0.1 can.
+func (s Site) UsesSocket() bool { return (s.Kind == Node || s.Kind == Python) && s.NodePort == 0 }
+
+// AppSocketDir holds the socket of an app. It is made by root when the app starts, owned by the site's account, with the group of
+// nginx and the setgid bit, so the socket the app makes belongs to that group and nginx alone may connect to it.
+func AppSocketDir(name string) string { return "/run/mpn-app/" + name }
+
+// AppSocket is the socket an app listens on; the unit passes it in SOCKET (and in PORT for Node.js, whose listen takes a path).
+func AppSocket(name string) string { return AppSocketDir(name) + "/app.sock" }
+
 // ProxyTarget returns the URL nginx forwards to, or "" for kinds that are not proxied.
 func (s Site) ProxyTarget() string {
 	switch s.Kind {
 	case Node, Python:
+		if s.UsesSocket() {
+			return "http://unix:" + AppSocket(s.Name) + ":"
+		}
 		return fmt.Sprintf("http://127.0.0.1:%d", s.NodePort)
 	case Proxy:
 		return s.Upstream

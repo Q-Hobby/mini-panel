@@ -289,7 +289,11 @@ label httpd_exec_t '/opt/mpn/php/[^/]+/sbin/php-fpm'
 # semanage takes only one spelling, because an equivalency rule maps the other to it: /var/run on EL9, /run on EL10.
 label httpd_var_run_t '/run/php(/.*)?' 2>/dev/null || label httpd_var_run_t '/var/run/php(/.*)?'
 [ ! -d /run/php ] || restorecon -R /run/php
-# systemd may start a program only from a path labelled as one: the interpreter of a python site's virtual environment is in the
+# The socket of the panel (mpn-web.socket), which nginx and the database browser connect to. systemd makes it with the label of the
+# path, so the rule must exist before the socket is started.
+label httpd_var_run_t '/run/mpn-web(/.*)?' 2>/dev/null || label httpd_var_run_t '/var/run/mpn-web(/.*)?'
+[ ! -d /run/mpn-web ] || restorecon -R /run/mpn-web
+` + panelSELinuxModule + `# systemd may start a program only from a path labelled as one: the interpreter of a python site's virtual environment is in the
 # home of the site, user_home_t ("Unable to locate executable .../venv/bin/python: Permission denied", seen on Rocky Linux 10).
 label bin_t '/home/[^/]+/venv/bin(/.*)?'
 label bin_t '/opt/node/[^/]+/bin(/.*)?'
@@ -378,7 +382,7 @@ func elPanelPorts(o Options) []int {
 // elBasePackages are the base packages on EL. curl-minimal, which the images ship, already gives curl; asking for curl would
 // conflict with it on EL9.
 func elBasePackages() []string {
-	return []string{"ca-certificates", "tar", "xz", "openssl", "logrotate", distro.CronPackage(), "policycoreutils-python-utils", "shadow-utils", "procps-ng"}
+	return []string{"ca-certificates", "tar", "xz", "openssl", "logrotate", distro.CronPackage(), "policycoreutils-python-utils", "shadow-utils", "procps-ng", "gnupg2"}
 }
 
 // elFirewallAction turns firewalld off: the panel's own firewall is nftables, as on Debian, and two firewalls would each block what

@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Formatting
+        run: |
+          out=$(gofmt -l cmd internal | grep -v '^internal/cloudprov/generated.go$' || true)
+          [ -z "$out" ] || { echo "::error::not gofmt-formatted:"; echo "$out"; exit 1; }
+
+      - name: Vet
+        run: go vet ./...
+
+      # Some tests need root and a real filesystem (internal/safedir opens paths below folders other accounts own); they run as root
+      # here so that what they check is what the root helper does on a server.
+      - name: Test
+        run: |
+          go test -count=1 ./...
+          sudo env "PATH=$PATH" "GOCACHE=$(go env GOCACHE)" "GOMODCACHE=$(go env GOMODCACHE)" go test -count=1 ./internal/safedir
+
+      - name: Known vulnerabilities
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
+          govulncheck ./...

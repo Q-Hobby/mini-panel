@@ -6,7 +6,14 @@
 package backup
 
 import (
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"io"
+	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -31,17 +38,24 @@ func Dir(name, stamp string) string { return SiteDir(name) + "/" + stamp }
 //
 // Htdocs is set when files.tar.gz holds the whole htdocs of a site whose web root lies below it (mpn 1.1.1 and later).
 // Backups made before that hold only the web root, and are put back there.
+//
+// From 1.2.0 a MANIFEST also holds the SHA-256 of each file (sum=<file>:<hex>) and ends with mac=<hex>, an HMAC-SHA256 of all
+// the lines above it with the key of this server (KeyFile). A backup that comes back from off-site storage is used only when its
+// MAC is right, so whoever can write to the storage cannot hand the server a backup of their own.
 type Manifest struct {
 	Site   string
 	Stamp  string
 	Files  bool
 	Htdocs bool
 	DBs    []string
+	Sums   map[string]string // file name to SHA-256, in hex
+	Signed bool              // the mac line was there and is right for this server's key (set by ParseManifest)
 }
 
 const header = "mpn backup 1"
 
-func (m Manifest) String() string {
+// body is the MANIFEST without its mac line.
+func (m Manifest) body() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s\nsite=%s\nstamp=%s\n", header, m.Site, m.Stamp)
 	if m.Files {
@@ -53,16 +67,50 @@ func (m Manifest) String() string {
 	for _, d := range m.DBs {
 		fmt.Fprintf(&b, "db=%s\n", d)
 	}
+	names := make([]string, 0, len(m.Sums))
+	for n := range m.Sums {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	for _, n := range names {
+		fmt.Fprintf(&b, "sum=%s:%s\n", n, m.Sums[n])
+	}
 	return b.String()
 }
 
-// ParseManifest reads a MANIFEST. Every value is checked, because a restore puts the names into shell commands.
-func ParseManifest(text string) (Manifest, error) {
+// String is the MANIFEST without a MAC, as mpn 1.1 wrote it; Sign gives the signed text.
+func (m Manifest) String() string { return m.body() }
+
+// Sign returns the MANIFEST with its mac line, made with key.
+func (m Manifest) Sign(key []byte) string {
+	b := m.body()
+	return b + "mac=" + mac(key, b) + "\n"
+}
+
+func mac(key []byte, text string) string {
+	h := hmac.New(sha256.New, key)
+	h.Write([]byte(text))
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+// ParseManifest reads a MANIFEST. Every value is checked, because a restore puts the names into shell commands. Without a key,
+// or for a MANIFEST of 1.1 that has no mac line, Signed is false.
+func ParseManifest(text string, key ...[]byte) (Manifest, error) {
 	lines := strings.Split(strings.TrimSpace(text), "\n")
 	if lines[0] != header {
 		return Manifest{}, fmt.Errorf("not an mpn backup manifest (first line %q)", lines[0])
 	}
 	var m Manifest
+	if last := lines[len(lines)-1]; strings.HasPrefix(last, "mac=") {
+		got := strings.TrimPrefix(last, "mac=")
+		lines = lines[:len(lines)-1]
+		body := strings.Join(lines, "\n") + "\n"
+		for _, k := range key {
+			if len(k) > 0 && hmac.Equal([]byte(got), []byte(mac(k, body))) {
+				m.Signed = true
+			}
+		}
+	}
 	for _, l := range lines[1:] {
 		k, v, ok := strings.Cut(l, "=")
 		if !ok {
@@ -94,6 +142,17 @@ func ParseManifest(text string) (Manifest, error) {
 				return Manifest{}, fmt.Errorf("manifest has an invalid database name %q", v)
 			}
 			m.DBs = append(m.DBs, v)
+		case "sum":
+			n, h, ok := strings.Cut(v, ":")
+			if !ok || !sumRe.MatchString(h) || (n != "files.tar.gz" && !(strings.HasSuffix(n, ".sql.gz") && dbadmin.ValidName(strings.TrimSuffix(n, ".sql.gz")))) {
+				return Manifest{}, fmt.Errorf("manifest has an invalid sum line %q", v)
+			}
+			if m.Sums == nil {
+				m.Sums = map[string]string{}
+			}
+			m.Sums[n] = h
+		case "mac":
+			return Manifest{}, fmt.Errorf("manifest has a mac line that is not the last one")
 		default:
 			return Manifest{}, fmt.Errorf("manifest has an unknown key %q", k)
 		}
@@ -102,6 +161,34 @@ func ParseManifest(text string) (Manifest, error) {
 		return Manifest{}, fmt.Errorf("manifest lacks a site or a stamp")
 	}
 	return m, nil
+}
+
+var sumRe = regexp.MustCompile(`^[0-9a-f]{64}$`)
+
+// KeyFile is the key the MANIFEST of every backup of this server is signed with. It is made once, by root, and never leaves the
+// server: a copy of the backups off the server does not carry it.
+const KeyFile = "/etc/mpn/backup.key"
+
+// CheckFileSum compares a file of a backup with the SHA-256 its MANIFEST holds. A MANIFEST without sums (made before 1.2.0) has
+// nothing to compare, and is accepted only where its MAC was not asked for.
+func CheckFileSum(m Manifest, path string) error {
+	want, ok := m.Sums[filepath.Base(path)]
+	if !ok {
+		return fmt.Errorf("the MANIFEST has no checksum for %s", filepath.Base(path))
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return err
+	}
+	if hex.EncodeToString(h.Sum(nil)) != want {
+		return fmt.Errorf("its SHA-256 differs from the one in the MANIFEST")
+	}
+	return nil
 }
 
 // checkDBs makes sure every database name is safe and belongs to the site.
@@ -152,9 +239,80 @@ func CreatePlan(s site.Site, stamp string, dbs []string, dump string) (installer
 	}
 	_, below := s.RootSub()
 	m := Manifest{Site: s.Name, Stamp: stamp, Files: true, Htdocs: below && s.Root != site.HtdocsOf(s.User), DBs: dbs}
+	// The MANIFEST is written by "mpn backup seal", which reads the files to sum them and signs the result with KeyFile; it is the
+	// last step, so a backup cut off before it has no MANIFEST and counts as unfinished.
+	args := []string{"backup", "seal", "-dir", dir, "-site", s.Name, "-stamp", stamp}
+	if m.Htdocs {
+		args = append(args, "-htdocs")
+	}
+	for _, d := range dbs {
+		args = append(args, "-dbname", d)
+	}
 	return append(plan, installer.Step{Name: "manifest", Actions: []installer.Action{
-		installer.WriteFile(dir+"/MANIFEST", m.String(), 0o600),
+		installer.Run(append([]string{"/usr/local/bin/mpn"}, args...)...),
 	}}), nil
+}
+
+// Seal sums the files of a finished backup and writes its signed MANIFEST, through a temporary file and a rename.
+func Seal(dir string, m Manifest, key []byte) error {
+	names := []string{}
+	if m.Files {
+		names = append(names, "files.tar.gz")
+	}
+	for _, d := range m.DBs {
+		names = append(names, d+".sql.gz")
+	}
+	m.Sums = map[string]string{}
+	for _, n := range names {
+		f, err := os.Open(filepath.Join(dir, n))
+		if err != nil {
+			return err
+		}
+		h := sha256.New()
+		_, err = io.Copy(h, f)
+		f.Close()
+		if err != nil {
+			return err
+		}
+		m.Sums[n] = hex.EncodeToString(h.Sum(nil))
+	}
+	tmp := filepath.Join(dir, ".MANIFEST.tmp")
+	if err := os.WriteFile(tmp, []byte(m.Sign(key)), 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, filepath.Join(dir, "MANIFEST"))
+}
+
+// LoadKey reads KeyFile, making it the first time (32 random bytes, root only).
+func LoadKey(path string) ([]byte, error) {
+	if b, err := os.ReadFile(path); err == nil {
+		k, err := hex.DecodeString(strings.TrimSpace(string(b)))
+		if err != nil || len(k) != 32 {
+			return nil, fmt.Errorf("%s is damaged", path)
+		}
+		return k, nil
+	} else if !os.IsNotExist(err) {
+		return nil, err
+	}
+	k := make([]byte, 32)
+	if _, err := rand.Read(k); err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, err
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		if os.IsExist(err) {
+			return LoadKey(path) // made at the same moment by another backup
+		}
+		return nil, err
+	}
+	_, err = f.WriteString(hex.EncodeToString(k) + "\n")
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	return k, err
 }
 
 // filesRoot is the folder a backup archives and a restore extracts into: htdocs when the web root lies below it, so a site

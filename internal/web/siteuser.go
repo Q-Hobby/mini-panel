@@ -12,7 +12,7 @@ import (
 var secondLevel = map[string]bool{"co": true, "com": true, "net": true, "org": true, "gov": true, "edu": true, "ac": true}
 
 // siteUserFrom makes the name of a site's system account from its first host name: the top-level domain goes, and so
-// does a leading "www.". "datvu.io" gives "datvu", "www.example.co.uk" gives "example", "blog.example.com" gives
+// does a leading "www.". "acme.io" gives "acme", "www.example.co.uk" gives "example", "blog.example.com" gives
 // "blog-example". The rule is the same one app.js uses while the user types, so the form shows what the server would pick.
 func siteUserFrom(host string) string {
 	h := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(host)), "www.")

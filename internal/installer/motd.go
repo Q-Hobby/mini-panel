@@ -21,6 +21,11 @@ printf '\n'
 printf "  ${a}%s${r}   ${b}Mini Panel${r} %s\n" ' /| /|' "$ver"
 printf "  ${a}%s${r}   ${d}%s, up %s${r}\n\n" '/ |/ |' "$os" "${up:-?}"
 printf "  ${d}%-9s${r} ${a}https://%s:%s${r}\n" 'Panel' "${ip:-<server-ip>}" "${port:-2610}"
+# Until the first account exists, the link that opens the setup page (it carries a one-time key).
+if [ ! -e /var/lib/mpn-web/account.json ]; then
+  link=$(/usr/local/bin/mpn web setup-link -quiet 2>/dev/null)
+  [ -z "$link" ] || printf "  ${d}%-9s${r} ${b}%s${r}\n" 'Setup' "$link"
+fi
 printf "  ${d}%-9s${r} %s\n" 'Docs' 'https://mpanel.biz'
 printf "  ${d}%-9s${r} %s\n\n" 'Command' 'mpn  (mpn web passwd resets the panel password)'
 printf "  ${d}load${r} %s   ${d}memory${r} %s   ${d}disk${r} %s   ${d}websites${r} %s\n\n" "$load" "${mem:-?}" "${disk:-?}" "$sites"

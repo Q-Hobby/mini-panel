@@ -30,6 +30,19 @@ func OwnedBy(name, site string) bool {
 	return name == b || strings.HasPrefix(name, b+"_")
 }
 
+// CloserOwner returns another site among sites whose names name also fits, and fits more closely (a longer base name): "blog_shop" is
+// a name of blog, and more closely one of blog-shop. "" when there is none. A name is checked against it when it is made, so no site
+// can hold a database that looks like another site's. Who owns a database is then the record of the store, not its name.
+func CloserOwner(name, site string, sites []string) string {
+	mine := len(BaseName(site))
+	for _, o := range sites {
+		if o != site && OwnedBy(name, o) && len(BaseName(o)) > mine {
+			return o
+		}
+	}
+	return ""
+}
+
 // passwordAlphabet leaves out characters that are easy to confuse (0 O 1 l I).
 const passwordAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"
 

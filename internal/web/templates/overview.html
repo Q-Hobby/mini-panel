@@ -134,7 +134,7 @@
       </div>
       <div>
         <label for="s-port" class="label">{{T "ov.node.port"}}</label>
-        <input id="s-port" name="port" type="number" min="1024" max="65535" class="field font-mono" value="{{$o.Port}}" required>
+        <input id="s-port" name="port" type="number" min="1024" max="65535" class="field font-mono" value="{{if $o.Port}}{{$o.Port}}{{end}}" placeholder="{{T "ov.node.socket"}}">
         <p class="hint">{{T "ov.node.port.hint"}}</p>
       </div>
       <div>
@@ -162,7 +162,7 @@
       </div>
       <div>
         <label for="s-port" class="label">{{T "ov.node.port"}}</label>
-        <input id="s-port" name="port" type="number" min="1024" max="65535" class="field font-mono" value="{{$o.Port}}" required>
+        <input id="s-port" name="port" type="number" min="1024" max="65535" class="field font-mono" value="{{if $o.Port}}{{$o.Port}}{{end}}" placeholder="{{T "ov.node.socket"}}">
         <p class="hint">{{T "ov.node.port.hint"}}</p>
       </div>
       <div>

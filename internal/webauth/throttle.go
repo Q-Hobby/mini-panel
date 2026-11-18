@@ -25,7 +25,44 @@ type Throttle struct {
 
 type attempt struct {
 	fails       int
+	inflight    int // attempts let through and not yet answered
 	until, last time.Time
+}
+
+// Admit lets one attempt of key through, or says how long to wait. An attempt counts from the moment it is let through, not from when
+// it fails: otherwise many attempts sent at the same moment would all pass before the first failure was counted. release must be
+// called when the attempt has been answered (before Fail or Reset is fine too).
+func (t *Throttle) Admit(key string) (release func(), wait time.Duration) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	now := t.now()
+	k := t.bucket(key, now)
+	a := t.m[k]
+	if a == nil {
+		a = &attempt{last: now}
+		t.m[k] = a
+	}
+	if d := a.until.Sub(now); d > 0 {
+		return nil, d
+	}
+	// Up to Free attempts may be checked at once while free ones are left; after that one at a time, so each failure sets the lock
+	// before the next attempt is let through.
+	if a.inflight > 0 && a.fails+a.inflight >= t.Free {
+		return nil, 2 * time.Second
+	}
+	a.inflight++
+	done := false
+	return func() {
+		t.mu.Lock()
+		defer t.mu.Unlock()
+		if done {
+			return
+		}
+		done = true
+		if b := t.m[k]; b == a && a.inflight > 0 {
+			a.inflight--
+		}
+	}, 0
 }
 
 func NewThrottle() *Throttle {

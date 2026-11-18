@@ -107,7 +107,7 @@ type Options struct {
 // Build returns the plan. It fails on an unknown engine or MySQL series.
 func Build(o Options) (Plan, error) {
 	// cron runs the jobs of the Cron tab; minimal images (Debian 13 on some providers) come without it.
-	base := Step{"base packages", []Action{aptUpdate(), aptInstall("ca-certificates", "curl", "xz-utils", "openssl", "logrotate", distro.CronPackage()), Run("systemctl", "enable", "--now", distro.CronService())}}
+	base := Step{"base packages", []Action{aptUpdate(), aptInstall("ca-certificates", "curl", "xz-utils", "openssl", "logrotate", "gpgv", distro.CronPackage()), Run("systemctl", "enable", "--now", distro.CronService())}}
 	nginxActs := nginxInstallActions(o.Target)
 	if o.Target.EL() {
 		base = Step{"base packages", []Action{
@@ -238,10 +238,21 @@ func stopUnusedFPM(v string) string {
 	return fmt.Sprintf("if ls %[1]s*.conf 2>/dev/null | grep -qv '/www\\.conf$'; then echo '%[2]s has a site pool, left running'; else systemctl disable --now %[2]s; fi", distro.PHPPoolDir(v), distro.PHPService(v))
 }
 
+// nodeReleaseKeys are the keys of the people who sign Node.js releases, active and retired, from nodejs/release-keys at commit
+// 481637f813e912c4aa3622d7964ab426c97b8e8d (29 keys, each file name checked against the fingerprint of its key), exported as one
+// binary keyring for gpgv. They are built into mpn so that neither nodejs.org nor a copy of it can choose the keys.
+//
+//go:embed nodekeys/node-release-keys.gpg
+var nodeReleaseKeys []byte
+
+// NodeKeyringFile is where the step writes those keys for gpgv.
+const NodeKeyringFile = "/etc/mpn/node-release-keys.gpg"
+
 // nodeScript installs the newest release of one major version from nodejs.org into /opt/node/<release>
-// and points /opt/node/<major> at it. The tarball is checked against SHASUMS256.txt fetched over TLS from
-// the same host; the signature on that file is not verified.
+// and points /opt/node/<major> at it. SHASUMS256.txt must carry a good signature of a Node.js releaser
+// (gpgv against the keys above) before any line of it is believed, and the tarball must match its line.
 const nodeScript = `set -eu
+command -v gpgv >/dev/null || { echo "gpgv is needed to check Node.js (the base packages step installs it)" >&2; exit 1; }
 major=@MAJOR@
 case $(uname -m) in x86_64) a=x64;; aarch64) a=arm64;; *) echo "unsupported CPU" >&2; exit 1;; esac
 ver=$(curl -fsSL https://nodejs.org/dist/index.json | grep -o "\"version\":\"v$major\.[0-9]*\.[0-9]*\"" | head -1 | cut -d'"' -f4)
@@ -252,6 +263,8 @@ if [ ! -x "$dir/bin/node" ]; then
   f=node-$ver-linux-$a.tar.xz
   curl -fsSL -o "$tmp/$f" "https://nodejs.org/dist/$ver/$f"
   curl -fsSL -o "$tmp/SHASUMS256.txt" "https://nodejs.org/dist/$ver/SHASUMS256.txt"
+  curl -fsSL -o "$tmp/SHASUMS256.txt.sig" "https://nodejs.org/dist/$ver/SHASUMS256.txt.sig"
+  gpgv --keyring ` + NodeKeyringFile + ` "$tmp/SHASUMS256.txt.sig" "$tmp/SHASUMS256.txt" 2>/dev/null || { echo "SHASUMS256.txt of Node.js $ver is not signed by a Node.js releaser; nothing was installed" >&2; rm -rf "$tmp"; exit 1; }
   (cd "$tmp" && grep " $f\$" SHASUMS256.txt | sha256sum -c -)
   mkdir -p /opt/node
   tar -xJf "$tmp/$f" -C /opt/node
@@ -265,7 +278,12 @@ func nodeStep(major string) (Step, error) {
 	if !slices.Contains(site.NodeVersions, major) {
 		return Step{}, fmt.Errorf("node version %q is not offered", major)
 	}
-	return Step{"node " + major, []Action{Run("sh", "-c", strings.Replace(nodeScript, "@MAJOR@", major, 1))}}, nil
+	// gpgv is in the base packages from 1.2.0; a machine installed before gets it here, the first time it adds a Node.js version.
+	return Step{"node " + major, []Action{
+		Run("sh", "-c", "command -v gpgv >/dev/null || "+strings.Join(distro.InstallCommand(distro.GPGVPackage()), " ")),
+		WriteFile(NodeKeyringFile, string(nodeReleaseKeys), 0o644),
+		Run("sh", "-c", strings.Replace(nodeScript, "@MAJOR@", major, 1)),
+	}}, nil
 }
 
 func hasPHPBefore74(versions []string) bool {

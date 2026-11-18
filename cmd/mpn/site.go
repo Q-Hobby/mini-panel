@@ -92,6 +92,8 @@ func runSite(args []string) {
 		siteSSLInfo(args[1:])
 	case "ssl-renew":
 		siteRenew(args[1:])
+	case "mkroot":
+		siteMkroot(args[1:])
 	default:
 		siteUsage()
 	}
@@ -123,7 +125,8 @@ func siteAdd(args []string) {
 	fs.StringVar(&s.NodeVersion, "node", "22", "Node.js major version, node sites only")
 	fs.StringVar(&s.PyVersion, "python", "", "Python 3 minor version such as 3.12, python sites only (default: the system's python3)")
 	fs.StringVar(&s.Entry, "entry", "", "start script relative to the root (default server.js for node, app.py for python)")
-	fs.IntVar(&s.NodePort, "port", 0, "node or python app port, 0 picks a free one")
+	fs.IntVar(&s.NodePort, "port", 0, "node or python app port; 0 means a Unix socket, or a free port with -use-port")
+	usePort := fs.Bool("use-port", false, "node or python: listen on a free TCP port on 127.0.0.1 instead of a Unix socket")
 	fs.StringVar(&s.Upstream, "upstream", "", "http(s) URL, proxy sites only")
 	r := addRenderFlags(fs)
 	_ = fs.Parse(args)
@@ -150,7 +153,9 @@ func siteAdd(args []string) {
 			s.PyVersion = site.SystemPython()
 		}
 	}
-	if (s.Kind == site.Node || s.Kind == site.Python) && s.NodePort == 0 {
+	// From 1.2.0 an app listens on a Unix socket unless a port is asked for (-port N). On the RHEL family it keeps a port: nginx
+	// there runs as httpd_t, and connecting to a socket of an app in another domain needs a policy of its own, not written yet.
+	if (s.Kind == site.Node || s.Kind == site.Python) && s.NodePort == 0 && (*usePort || distro.IsEL()) {
 		p, err := st.AllocNodePort(nodePortLo, nodePortHi)
 		fail(err)
 		s.NodePort = p
@@ -165,6 +170,14 @@ func siteAdd(args []string) {
 	fail(err)
 	fmt.Printf("# site %q saved in %s (nothing was written to the system)\n\n", saved.Name, *db)
 	fail(printArtifacts(saved, r))
+}
+
+// listensOn says where an app listens, for the list.
+func listensOn(s site.Site) string {
+	if s.UsesSocket() {
+		return "on a socket"
+	}
+	return fmt.Sprintf("on port %d", s.NodePort)
 }
 
 // expiryOf is when the certificate of a site with HTTPS ends, or 0.
@@ -193,9 +206,9 @@ func siteList(args []string) {
 		case site.PHP:
 			detail = "php " + s.PHPVersion
 		case site.Node:
-			detail = fmt.Sprintf("node %s on port %d", s.NodeVersion, s.NodePort)
+			detail = fmt.Sprintf("node %s %s", s.NodeVersion, listensOn(s))
 		case site.Python:
-			detail = fmt.Sprintf("python %s on port %d", s.PyVersion, s.NodePort)
+			detail = fmt.Sprintf("python %s %s", s.PyVersion, listensOn(s))
 		case site.Proxy:
 			detail = s.Upstream
 		}

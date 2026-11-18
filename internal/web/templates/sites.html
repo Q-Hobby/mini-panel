@@ -18,15 +18,15 @@
 {{if .Sites}}
 <div class="table-wrap">
   <table class="tbl">
-    <thead><tr><th>{{T "sites.col.name"}}</th><th>{{T "sites.col.type"}}</th><th>{{T "sites.col.hosts"}}</th><th>{{T "sites.col.detail"}}</th><th></th></tr></thead>
+    <thead><tr><th>{{T "sites.col.name"}}</th><th>{{T "sites.col.type"}}</th><th class="hidden sm:table-cell">{{T "sites.col.hosts"}}</th><th class="hidden lg:table-cell">{{T "sites.col.detail"}}</th><th class="hidden sm:table-cell"></th></tr></thead>
     <tbody>
     {{range .Sites}}
       <tr>
-        <td class="font-medium"><a class="link" href="/sites/{{.Name}}">{{.Name}}</a></td>
-        <td><span class="badge-gray">{{T (printf "kind.%s" .Kind)}}</span>{{if .TLS}} <span class="badge-teal">{{T "sites.https"}}</span>{{end}}</td>
-        <td class="text-muted-foreground">{{range .Hostnames}}<div>{{.}}</div>{{end}}</td>
-        <td class="text-muted-foreground">{{.Detail}}</td>
-        <td>
+        <td class="font-medium"><a class="link break-all" href="/sites/{{.Name}}">{{.Name}}</a><div class="text-muted-foreground mt-0.5 text-xs font-normal sm:hidden">{{range $i, $h := .Hostnames}}{{if $i}}, {{end}}{{$h}}{{end}}</div></td>
+        <td><div class="flex flex-wrap gap-1"><span class="badge-gray">{{T (printf "kind.%s" .Kind)}}</span>{{if .TLS}}<span class="badge-teal">{{T "sites.https"}}</span>{{end}}</div></td>
+        <td class="text-muted-foreground hidden sm:table-cell">{{range .Hostnames}}<div>{{.}}</div>{{end}}</td>
+        <td class="text-muted-foreground hidden lg:table-cell">{{.Detail}}</td>
+        <td class="hidden sm:table-cell">
           <div class="flex items-center justify-end">
             <a class="btn-secondary px-3 py-1.5" href="/sites/{{.Name}}">{{T "sites.manage"}}
               <svg viewBox="0 0 20 20" class="ml-1.5 size-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10h11M11 5l5 5-5 5"/></svg>

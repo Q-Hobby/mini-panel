@@ -122,7 +122,7 @@ func init() {
 		"fm.done.move":        "Đã di chuyển %d tệp và %d thư mục.",
 		"fm.done.paste.fail":  "Không dán được.",
 		"fm.paste.partial":    "Đã xong %d tệp và %d thư mục trước khi gặp lỗi.",
-		"fm.err.inside":       "Không thể dán một thư mục vào chính nó hoặc thư mục con của nó.",	} {
+		"fm.err.inside":       "Không thể dán một thư mục vào chính nó hoặc thư mục con của nó."} {
 		vi[k] = v
 	}
 }

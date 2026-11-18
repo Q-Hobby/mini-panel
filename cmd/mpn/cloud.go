@@ -17,32 +17,43 @@ import (
 	"time"
 
 	"mpn/internal/backup"
+	"mpn/internal/cloudprov"
 	"mpn/internal/cloudsync"
 	"mpn/internal/gdrive"
 	"mpn/internal/installer"
+	"mpn/internal/remote"
 	"mpn/internal/site"
 	"mpn/internal/store"
 )
 
 const (
-	// cloudDropIn makes the nightly backup copy to the drive when it is done. A drop-in is used so that servers installed before this
+	// cloudDropIn makes the nightly backup copy to the storage when it is done. A drop-in is used so that servers installed before this
 	// existed get it without their own unit being rewritten. The "-" lets the backup count as done even when the copy fails.
 	cloudDropIn     = "/etc/systemd/system/mpn-backup.service.d/cloud.conf"
 	cloudDropInText = "[Service]\nExecStartPost=-" + mpnPath + " cloud sync -all -apply\n"
 	mpnPath         = "/usr/local/bin/mpn"
 	cloudUnit       = "mpn-cloud-sync"
 	defaultKeep     = 7
+	// cloudLimits keep a copy that runs in the background from starving the websites of a small server.
+	cloudScratch = "/var/lib/mpn/cloud"
 )
 
+var cloudLimits = []string{"-p", "MemoryMax=400M", "-p", "Nice=10", "-p", "IOSchedulingClass=idle", "-p", "CPUWeight=20"}
+
 func cloudUsage() {
-	fmt.Fprintln(os.Stderr, "usage: mpn cloud <status|connect|finish|disconnect|enable|sync|list|fetch> [flags]   (add -h for the flags)")
+	fmt.Fprintln(os.Stderr, "usage: mpn cloud <status|providers|configure|connect|finish|disconnect|enable|sync|list|fetch> [flags]   (add -h for the flags)")
 	os.Exit(2)
 }
 
 // cloudStatus is the answer of "mpn cloud status -json".
 type cloudStatus struct {
 	Connected bool                  `json:"connected"`
-	Email     string                `json:"email"`
+	Kind      string                `json:"kind"`  // "gdrive", or the type of the rclone storage such as "s3"
+	Email     string                `json:"email"` // Google Drive
+	Where     string                `json:"where"` // where the backups go, such as "S3 Cloudflare: bucket/mpn-backups"
+	Shown     map[string]string     `json:"shown,omitempty"`
+	Bucket    string                `json:"bucket,omitempty"`
+	Folder    string                `json:"folder,omitempty"`
 	Pending   *cloudPending         `json:"pending"`
 	Enabled   bool                  `json:"enabled"`
 	State     *cloudsync.State      `json:"state"`
@@ -60,13 +71,42 @@ func processAlive(pid int) bool {
 	return err == nil && p.Signal(syscall.Signal(0)) == nil
 }
 
-func cloudClient() (*gdrive.Client, cloudsync.Config) {
-	cfg, err := cloudsync.LoadConfig(cloudsync.ConfigFile)
+// cloudConnected reports which storage is connected: "gdrive", "rclone" or "".
+func cloudConnected() string {
+	if _, err := cloudsync.LoadConfig(cloudsync.ConfigFile); err == nil {
+		return "gdrive"
+	}
+	if _, err := remote.LoadSaved(remote.SettingsFile); err == nil {
+		return "rclone"
+	}
+	return ""
+}
+
+func requireDisconnected() {
+	switch cloudConnected() {
+	case "gdrive":
+		fail(errors.New("cloud-connected: Google Drive is connected; disconnect it first"))
+	case "rclone":
+		fail(errors.New("cloud-connected: a storage is connected; disconnect it first"))
+	}
+}
+
+// openRemote opens the connected storage as the folder mpn-backups.
+func openRemote(ctx context.Context) (cloudsync.Remote, context.Context) {
+	if cfg, err := cloudsync.LoadConfig(cloudsync.ConfigFile); err == nil {
+		cli := &gdrive.Client{EP: gdrive.Google, ClientID: cfg.ClientID, ClientSecret: cfg.ClientSecret, RefreshToken: cfg.RefreshToken}
+		return &gdrive.PathRemote{C: cli, Root: cfg.RootID}, ctx
+	}
+	saved, err := remote.LoadSaved(remote.SettingsFile)
 	if errors.Is(err, os.ErrNotExist) {
-		fail(errors.New("cloud-not-connected: connect to Google Drive first"))
+		fail(errors.New("cloud-not-connected: connect a storage first"))
 	}
 	fail(err)
-	return &gdrive.Client{EP: gdrive.Google, ClientID: cfg.ClientID, ClientSecret: cfg.ClientSecret, RefreshToken: cfg.RefreshToken}, cfg
+	ctx, err = remote.Setup(ctx, remote.ConfigFile)
+	fail(err)
+	r, err := remote.Open(ctx, saved.Root())
+	fail(err)
+	return r, ctx
 }
 
 func readCloudState(st *store.Store, name string) *cloudsync.State {
@@ -91,12 +131,21 @@ func runCloud(args []string) {
 	name := fs.String("site", "", "the website")
 	all := fs.Bool("all", false, "sync: every website that has the copy turned on")
 	on := fs.Bool("on", true, "enable: turn the copy of the site on (false turns it off)")
-	keep := fs.Int("keep", defaultKeep, "sync: how many of the newest backups of a site stay on the drive")
+	keep := fs.Int("keep", defaultKeep, "sync: how many of the newest backups of a site stay in the storage")
 	detach := fs.Bool("detach", false, "sync, fetch: start in the background and return at once")
 	stamp := fs.String("backup", "", "fetch: the backup to bring back, such as 20261104-031500")
 	asJSON := fs.Bool("json", false, "status: print JSON")
-	apply := fs.Bool("apply", false, "change this machine and contact Google (Linux, root); otherwise only check")
+	apply := fs.Bool("apply", false, "change this machine and contact the storage (Linux, root); otherwise only check")
 	_ = fs.Parse(args[1:])
+
+	switch sub {
+	case "providers": // needs no database: the form of the panel is drawn from this
+		printJSON(cloudprov.Providers)
+		return
+	case "configure":
+		cloudConfigure(*apply)
+		return
+	}
 	st := openStore(*db)
 	defer st.Close()
 
@@ -104,7 +153,9 @@ func runCloud(args []string) {
 	case "status":
 		s := cloudStatus{}
 		if cfg, err := cloudsync.LoadConfig(cloudsync.ConfigFile); err == nil {
-			s.Connected, s.Email = true, cfg.Email
+			s.Connected, s.Kind, s.Email, s.Where = true, "gdrive", cfg.Email, "Google Drive: "+cloudprov.RootName
+		} else if saved, err := remote.LoadSaved(remote.SettingsFile); err == nil {
+			s.Connected, s.Kind, s.Where, s.Shown, s.Bucket, s.Folder = true, saved.Type, describe(saved), saved.Shown, saved.Bucket, saved.Folder
 		}
 		if p, err := cloudsync.LoadPending(cloudsync.PendingFile); err == nil && !p.Expired(time.Now()) {
 			s.Pending = &cloudPending{UserCode: p.UserCode, URL: p.URL, Expires: p.Expires}
@@ -120,7 +171,7 @@ func runCloud(args []string) {
 			printJSON(s)
 			return
 		}
-		fmt.Printf("connected: %v %s\nsite enabled: %v\n", s.Connected, s.Email, s.Enabled)
+		fmt.Printf("connected: %v %s\nsite enabled: %v\n", s.Connected, s.Where, s.Enabled)
 	case "connect":
 		raw, err := io.ReadAll(io.LimitReader(os.Stdin, 4<<10))
 		fail(err)
@@ -136,6 +187,7 @@ func runCloud(args []string) {
 			return
 		}
 		requireLinuxRoot()
+		requireDisconnected()
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		d, err := gdrive.StartDevice(ctx, &http.Client{Timeout: 20 * time.Second}, gdrive.Google, in.ClientID)
@@ -152,7 +204,7 @@ func runCloud(args []string) {
 		cloudFinish()
 	case "disconnect":
 		if !*apply {
-			fmt.Println("# checked only. Add -apply to forget the connection. Files already on the drive stay there.")
+			fmt.Println("# checked only. Add -apply to forget the connection. Files already in the storage stay there.")
 			return
 		}
 		requireLinuxRoot()
@@ -160,17 +212,15 @@ func runCloud(args []string) {
 	case "enable":
 		s, err := st.GetSite(*name)
 		fail(err)
-		if *on {
-			if _, err := cloudsync.LoadConfig(cloudsync.ConfigFile); err != nil {
-				fail(errors.New("cloud-not-connected: connect to Google Drive first"))
-			}
+		if *on && cloudConnected() == "" {
+			fail(errors.New("cloud-not-connected: connect a storage first"))
 		}
 		if !*apply {
-			fmt.Printf("would turn the copy of %s to Google Drive %v\n", s.Name, *on)
+			fmt.Printf("would turn the copy of %s %v\n", s.Name, *on)
 			return
 		}
 		fail(st.SetSetting(cloudsync.SiteKey(s.Name), map[bool]string{true: "1", false: "0"}[*on]))
-		fmt.Printf("the copy of %s to Google Drive is %s\n", s.Name, map[bool]string{true: "on", false: "off"}[*on])
+		fmt.Printf("the copy of %s is %s\n", s.Name, map[bool]string{true: "on", false: "off"}[*on])
 	case "sync":
 		cloudSyncCmd(st, *name, *all, *keep, *detach, *apply)
 	case "list":
@@ -180,6 +230,73 @@ func runCloud(args []string) {
 	default:
 		cloudUsage()
 	}
+}
+
+func describe(s remote.Saved) string {
+	where := s.Root()
+	switch s.Type {
+	case "s3":
+		return "S3 " + s.Shown["provider"] + ": " + where
+	case "b2":
+		return "Backblaze B2: " + where
+	case "sftp":
+		return "SFTP " + s.Shown["user"] + "@" + s.Shown["host"] + ": " + where
+	case "ftp":
+		return "FTP " + s.Shown["user"] + "@" + s.Shown["host"] + ": " + where
+	case "webdav":
+		return "WebDAV " + s.Shown["url"] + ": " + where
+	}
+	return s.Type + ": " + where
+}
+
+// cloudConfigure connects a storage of the list in internal/cloudprov. The settings arrive as JSON on standard input, never as
+// arguments, because they hold secrets. The connection is kept only once a test file was written, read back and deleted.
+func cloudConfigure(apply bool) {
+	raw, err := io.ReadAll(io.LimitReader(os.Stdin, 64<<10))
+	fail(err)
+	var in cloudprov.Settings
+	fail(json.Unmarshal(raw, &in))
+	if _, err := in.Check(); err != nil {
+		fail(fmt.Errorf("cloud-badsettings: %w", err))
+	}
+	if !apply {
+		fmt.Println("# checked only. Add -apply to connect and test the storage.")
+		return
+	}
+	requireLinuxRoot()
+	requireDisconnected()
+	fail(os.MkdirAll(cloudScratch, 0o700))
+	// The remote is written to a file of its own and tested there; only a remote that works replaces the real one.
+	trial := remote.ConfigFile + ".new"
+	trialSettings := remote.SettingsFile + ".new"
+	defer os.Remove(trial)
+	defer os.Remove(trialSettings)
+	_ = os.Remove(trial)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	ctx, err = remote.Setup(ctx, trial)
+	fail(err)
+	fail(remote.Write(in, trialSettings))
+	r, err := remote.Open(ctx, cloudprov.Root(in.Bucket, in.Folder))
+	if err != nil {
+		fail(fmt.Errorf("cloud-test-connect: %w", err))
+	}
+	if err := r.Test(ctx, cloudScratch); err != nil {
+		fail(err)
+	}
+	fail(os.Rename(trial, remote.ConfigFile))
+	fail(os.Rename(trialSettings, remote.SettingsFile))
+	fail(installCloudDropIn())
+	saved, _ := remote.LoadSaved(remote.SettingsFile)
+	fmt.Printf("connected; the backups go to %s\n", describe(saved))
+}
+
+func installCloudDropIn() error {
+	return runPlanQuiet(installer.Plan{{Name: "copy after the nightly backup", Actions: []installer.Action{
+		installer.Run("install", "-d", "-m", "0755", "/etc/systemd/system/mpn-backup.service.d"),
+		installer.WriteFile(cloudDropIn, cloudDropInText, 0o644),
+		installer.Run("systemctl", "daemon-reload"),
+	}}})
 }
 
 func cloudFinish() {
@@ -207,17 +324,13 @@ func cloudFinish() {
 	}
 	fail(err)
 	cli := &gdrive.Client{HTTP: hc, EP: gdrive.Google, ClientID: p.ClientID, ClientSecret: p.ClientSecret, RefreshToken: rt}
-	root, err := cli.EnsureFolder(ctx, "root", cloudsync.RootName)
+	root, err := cli.EnsureFolder(ctx, "root", cloudprov.RootName)
 	fail(err)
 	cfg := cloudsync.Config{ClientID: p.ClientID, ClientSecret: p.ClientSecret, RefreshToken: rt, RootID: root, Email: cli.Email(ctx)}
 	fail(cloudsync.SaveConfig(cloudsync.ConfigFile, cfg))
 	_ = os.Remove(cloudsync.PendingFile)
-	fail(runPlanQuiet(installer.Plan{{Name: "copy after the nightly backup", Actions: []installer.Action{
-		installer.Run("install", "-d", "-m", "0755", "/etc/systemd/system/mpn-backup.service.d"),
-		installer.WriteFile(cloudDropIn, cloudDropInText, 0o644),
-		installer.Run("systemctl", "daemon-reload"),
-	}}}))
-	fmt.Printf("connected to Google Drive as %s; the backups go to the folder %s\n", cfg.Email, cloudsync.RootName)
+	fail(installCloudDropIn())
+	fmt.Printf("connected to Google Drive as %s; the backups go to the folder %s\n", cfg.Email, cloudprov.RootName)
 }
 
 func cloudDisconnect() {
@@ -231,10 +344,10 @@ func cloudDisconnect() {
 		}
 	}
 	fail(runPlanQuiet(installer.Plan{{Name: "forget the connection", Actions: []installer.Action{
-		installer.Run("rm", "-f", cloudsync.ConfigFile, cloudsync.PendingFile, cloudDropIn),
+		installer.Run("rm", "-f", cloudsync.ConfigFile, cloudsync.PendingFile, remote.ConfigFile, remote.SettingsFile, cloudDropIn),
 		installer.Run("systemctl", "daemon-reload"),
 	}}}))
-	fmt.Println("disconnected from Google Drive; files already on the drive stay there")
+	fmt.Println("disconnected; files already in the storage stay there")
 }
 
 // cloudSyncCmd copies the backups of one site, or of every site that has the copy on.
@@ -260,12 +373,13 @@ func cloudSyncCmd(st *store.Store, name string, all bool, keep int, detach, appl
 		sites = []site.Site{s}
 	}
 	if !apply {
-		fmt.Printf("would copy the newest %d backup(s) of %d site(s) to Google Drive\n", keep, len(sites))
+		fmt.Printf("would copy the newest %d backup(s) of %d site(s)\n", keep, len(sites))
 		return
 	}
 	requireLinuxRoot()
 	if detach {
-		args := []string{"--collect", "--quiet", "--unit=" + cloudUnit, "--description=mpn: copy backups to Google Drive", mpnPath, "cloud", "sync", "-keep", strconv.Itoa(keep), "-apply"}
+		args := append([]string{"--collect", "--quiet", "--unit=" + cloudUnit, "--description=mpn: copy backups off the server"}, cloudLimits...)
+		args = append(args, mpnPath, "cloud", "sync", "-keep", strconv.Itoa(keep), "-apply")
 		if all {
 			args = append(args, "-all")
 		} else {
@@ -281,7 +395,7 @@ func cloudSyncCmd(st *store.Store, name string, all bool, keep int, detach, appl
 		return
 	}
 	if len(sites) == 0 {
-		fmt.Println("no website has the copy to Google Drive turned on")
+		fmt.Println("no website has the copy turned on")
 		return
 	}
 	lock, err := cloudsync.TakeLock(cloudsync.LockFile, processAlive)
@@ -290,13 +404,13 @@ func cloudSyncCmd(st *store.Store, name string, all bool, keep int, detach, appl
 	}
 	fail(err)
 	defer lock.Release()
-	cli, cfg := cloudClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Hour)
 	defer cancel()
+	r, ctx := openRemote(ctx)
 	failed := 0
 	for _, s := range sites {
 		complete, _ := listStamps(s.Name)
-		res, err := cloudsync.SyncSite(ctx, cli, cfg.RootID, s.Name, complete, func(stamp string) string { return backup.Dir(s.Name, stamp) }, keep, os.Stdout)
+		res, err := cloudsync.SyncSite(ctx, r, s.Name, complete, func(stamp string) string { return backup.Dir(s.Name, stamp) }, keep, os.Stdout)
 		state := cloudsync.State{At: time.Now().Unix(), OK: err == nil, Uploaded: len(res.Uploaded), Present: res.Present}
 		if err != nil {
 			state.Message = err.Error()
@@ -306,7 +420,7 @@ func cloudSyncCmd(st *store.Store, name string, all bool, keep int, detach, appl
 			fmt.Fprintf(os.Stderr, "site %s: %v\n", s.Name, err)
 			failed++
 		} else {
-			fmt.Printf("site %s: %d new, %d on the drive\n", s.Name, len(res.Uploaded), res.Present)
+			fmt.Printf("site %s: %d new, %d in the storage\n", s.Name, len(res.Uploaded), res.Present)
 		}
 		b, _ := json.Marshal(state)
 		_ = st.SetSetting(cloudsync.StateKey(s.Name), string(b))

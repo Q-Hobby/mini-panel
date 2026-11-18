@@ -7,11 +7,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 
 	"mpn/internal/backup"
+	"mpn/internal/cloudprov"
 	"mpn/internal/cloudsync"
 	"mpn/internal/cron"
 	"mpn/internal/dbadmin"
@@ -81,10 +83,11 @@ type Request struct {
 	SecIgnore []string `json:"sec_ignore,omitempty"` // security.f2b: addresses and networks that are never banned
 	Jail      string   `json:"jail,omitempty"`       // security.unban
 	IP        string   `json:"ip,omitempty"`         // security.unban
-	// The copy of the backups to Google Drive. The client secret reaches mpn on standard input only.
-	CloudClientID string `json:"cloud_client_id,omitempty"` // cloud.connect
-	CloudSecret   string `json:"cloud_secret,omitempty"`    // cloud.connect
-	CloudOn       bool   `json:"cloud_on,omitempty"`        // cloud.enable: the site is copied
+	// The copy of the backups off the server. The client secret of Google and the settings of a storage reach mpn on standard input only.
+	CloudClientID string              `json:"cloud_client_id,omitempty"` // cloud.connect
+	CloudSecret   string              `json:"cloud_secret,omitempty"`    // cloud.connect
+	CloudOn       bool                `json:"cloud_on,omitempty"`        // cloud.enable: the site is copied
+	CloudStorage  *cloudprov.Settings `json:"cloud_storage,omitempty"`   // cloud.configure: S3, B2, SFTP, WebDAV or FTP
 	// app.install: the application to download and set up in a PHP site, and for WordPress the details of the first administrator.
 	// The password of the administrator is made by mpn and shown once; it is never sent here.
 	App       string `json:"app,omitempty"`
@@ -113,6 +116,8 @@ type Request struct {
 	SvcAction string `json:"svc_action,omitempty"`
 	// services.install of mariadb or mysql: the version to install, such as "11.8"; empty means the default of the engine.
 	DBSeries string `json:"db_series,omitempty"`
+	// panel.update: the release to install, such as "1.2.1"; empty means the latest.
+	Version string `json:"version,omitempty"`
 	// mail.cfadd: the API token of Cloudflare, made for the zone of MailDomain. It reaches mpn on standard input only and is not stored.
 	CFToken string `json:"cf_token,omitempty"`
 }
@@ -141,6 +146,9 @@ func (r Request) Stdin() string {
 			ClientSecret string `json:"client_secret"`
 		}{r.CloudClientID, r.CloudSecret})
 		return string(b)
+	case r.Op == "cloud.configure" && r.CloudStorage != nil:
+		b, _ := json.Marshal(r.CloudStorage)
+		return string(b)
 	case r.Op == "site.sslcustom", r.Op == "panel.sslcustom":
 		b, _ := json.Marshal(struct {
 			Key            string `json:"key"`
@@ -164,9 +172,11 @@ var writes = map[string]bool{
 	"site.cronadd": true, "site.cronset": true, "site.crondel": true, // the scheduled jobs of a site
 	"firewall.enable": true, "firewall.disable": true, "firewall.add": true, "firewall.del": true,
 	"security.waf": true, "security.f2b": true, "security.unban": true, // ModSecurity with the OWASP rules, and fail2ban
-	"panel.ssl": true, "panel.sslcustom": true, "panel.ssloff": true, // the certificate of the panel and of the database browser
-	"cloud.connect": true, "cloud.finish": true, "cloud.disconnect": true, "cloud.enable": true, "cloud.sync": true, "cloud.fetch": true, // the copy of backups to Google Drive
-	"mail.enable": true, "mail.disable": true, "mail.ssl": true, "mail.webmail": true, "mail.domainadd": true, "mail.domaindel": true, // the mail server and its domains
+	"security.cloudflare": true,                                                // the visitor's address from CF-Connecting-IP on Cloudflare's connections
+	"panel.ssl":           true, "panel.sslcustom": true, "panel.ssloff": true, // the certificate of the panel and of the database browser
+	"cloud.connect": true, "cloud.finish": true, "cloud.disconnect": true, "cloud.enable": true, "cloud.sync": true, "cloud.fetch": true, // the copy of backups off the server
+	"cloud.configure": true,                                                                                                               // connects S3, B2, SFTP, WebDAV or FTP and tests it
+	"mail.enable":     true, "mail.disable": true, "mail.ssl": true, "mail.webmail": true, "mail.domainadd": true, "mail.domaindel": true, // the mail server and its domains
 	"mail.cfadd":  true,                                                                     // adds the DNS records of a mail domain to Cloudflare; it changes nothing on this machine but acts on an account, so one at a time
 	"mail.boxadd": true, "mail.boxdel": true, "mail.boxpasswd": true, "mail.boxquota": true, // mailboxes
 	"mail.aliasset": true, "mail.aliasdel": true, // aliases
@@ -176,9 +186,14 @@ var writes = map[string]bool{
 	"db.pma": true, "db.pmadrop": true, "db.pmaclean": true, // the temporary users of the database browser
 	"backup.create": true, "backup.restore": true, "backup.prune": true,
 	"services.control": true, "services.install": true, "site.webmail": true,
+	"panel.update": true, // replaces the program with a signed release (mpn update), in the background
 }
 
-var reads = map[string]bool{"mail.cfdetect": true, "site.list": true, "site.info": true, "site.log": true, "services.status": true, "site.sslinfo": true, "site.vhost": true, "site.cronlist": true, "firewall.status": true, "security.status": true, "mail.status": true, "mail.records": true, "panel.sslinfo": true, "cloud.status": true, "cloud.list": true, "wp.status": true, "wp.search": true, "db.list": true, "backup.list": true}
+var reads = map[string]bool{"mail.cfdetect": true, "site.list": true, "site.info": true, "site.log": true, "services.status": true, "site.sslinfo": true, "site.vhost": true, "site.cronlist": true, "firewall.status": true, "security.status": true, "mail.status": true, "mail.records": true, "panel.sslinfo": true, "cloud.status": true, "cloud.list": true, "wp.status": true, "wp.search": true, "db.list": true, "backup.list": true, "panel.updatecheck": true}
+
+var versionRe = regexp.MustCompile(`^\d{1,4}\.\d{1,4}\.\d{1,4}$`)
+
+func validVersion(v string) bool { return versionRe.MatchString(v) }
 
 // Known reports whether op is an operation at all.
 func Known(op string) bool { return writes[op] || reads[op] }
@@ -253,6 +268,17 @@ func (r Request) Argv() ([]string, error) {
 		return []string{"site", "log", "-name", r.Site, "-kind=" + r.LogKind, "-lines=" + strconv.Itoa(n), "-query=" + r.Query}, nil
 	case "services.status":
 		return []string{"services", "status", "-json"}, nil
+	case "panel.updatecheck":
+		return []string{"update", "-check"}, nil
+	case "panel.update":
+		// Only a release number goes through; which release and whether it is genuine is decided by mpn update itself.
+		if r.Version == "" {
+			return []string{"update", "-apply", "-detach"}, nil
+		}
+		if !validVersion(r.Version) {
+			return nil, fmt.Errorf("invalid version %q", r.Version)
+		}
+		return []string{"update", "-apply", "-detach", "-version=" + r.Version}, nil
 	case "services.control":
 		if err := services.ValidAction(r.SvcKey, r.SvcAction); err != nil {
 			return nil, err
@@ -332,6 +358,15 @@ func (r Request) Argv() ([]string, error) {
 			return nil, err
 		}
 		return []string{"cloud", "connect", "-apply"}, nil
+	case "cloud.configure":
+		if r.CloudStorage == nil {
+			return nil, fmt.Errorf("no storage settings")
+		}
+		// The helper checks again: a request that names a setting off the list of internal/cloudprov never reaches rclone.
+		if _, err := r.CloudStorage.Check(); err != nil {
+			return nil, err
+		}
+		return []string{"cloud", "configure", "-apply"}, nil
 	case "cloud.finish":
 		return []string{"cloud", "finish", "-apply"}, nil
 	case "cloud.disconnect":
@@ -402,6 +437,8 @@ func (r Request) Argv() ([]string, error) {
 			return nil, err
 		}
 		return []string{"security", "f2b", "-on=" + strconv.FormatBool(r.SecOn), "-ignore=" + strings.Join(list, ","), "-apply"}, nil
+	case "security.cloudflare":
+		return []string{"security", "cloudflare", "-on=" + strconv.FormatBool(r.SecOn), "-apply"}, nil
 	case "security.unban":
 		if err := security.ValidJail(r.Jail); err != nil {
 			return nil, err
@@ -708,7 +745,7 @@ func (r Request) setSite() ([]string, error) {
 			return nil, fmt.Errorf("node version %q is not offered", r.Node)
 		case !site.ValidEntry(r.Entry):
 			return nil, fmt.Errorf("entry %q must be a relative path to the start script", r.Entry)
-		case !site.ValidAppPort(r.Port):
+		case r.Port != 0 && !site.ValidAppPort(r.Port):
 			return nil, fmt.Errorf("port %d must be between 1024 and 65535 and not one that the server itself uses", r.Port)
 		case !site.ValidMemMB(r.Mem):
 			return nil, fmt.Errorf("memory %d MB must be 0 (the default) or between 64 and 8192", r.Mem)
@@ -720,7 +757,7 @@ func (r Request) setSite() ([]string, error) {
 			return nil, fmt.Errorf("python version %q must look like 3.12", r.Python)
 		case !site.ValidPythonEntry(r.Entry):
 			return nil, fmt.Errorf("entry %q must be a relative path to the start script, or -m and a module name", r.Entry)
-		case !site.ValidAppPort(r.Port):
+		case r.Port != 0 && !site.ValidAppPort(r.Port):
 			return nil, fmt.Errorf("port %d must be between 1024 and 65535 and not one that the server itself uses", r.Port)
 		case !site.ValidMemMB(r.Mem):
 			return nil, fmt.Errorf("memory %d MB must be 0 (the default) or between 64 and 8192", r.Mem)

@@ -138,6 +138,35 @@ func installPlan(key, series string) (installer.Plan, error) {
 	return nil, fmt.Errorf("the panel cannot install %q", key)
 }
 
+// pmaFront makes a panel that has a name also serve the database browser under /pma/ of that name.
+func pmaFront() error {
+	st := openStore(defaultDB)
+	defer st.Close()
+	return syncFront(st)
+}
+
+// withDatabaseBrowser installs phpMyAdmin right after a database server, from the panel or from the command line alike, so the
+// Databases tab can open it at once. It is skipped on a machine without the web panel (the browser is reached through it). The
+// database server is installed and working already, so a failure here is reported but does not fail the install: phpMyAdmin can be
+// installed again later from the Services page.
+func withDatabaseBrowser() {
+	if len(lockedPorts().Panel) == 0 {
+		return
+	}
+	plan, err := installPlan(services.PhpMyAdmin, "")
+	if err == nil {
+		err = runPlanQuiet(plan)
+	}
+	if err == nil {
+		err = pmaFront()
+	}
+	if err != nil {
+		fmt.Printf("warning: the database server works, but phpMyAdmin could not be installed: %v\ninstall it again from the Services page\n", err)
+		return
+	}
+	fmt.Println("phpmyadmin is installed")
+}
+
 // runServices lists what the panel manages, does start/stop/restart/reload on a service, and installs what can be added after the first
 // install. The keys come from a fixed list (internal/services).
 func runServices(args []string) {
@@ -195,13 +224,13 @@ func runServices(args []string) {
 		}
 		requireLinuxRoot()
 		fail(runPlanQuiet(plan))
-		if *key == services.PhpMyAdmin { // a panel that has a name now also serves the browser under /pma/ of that name
-			st := openStore(defaultDB)
-			err := syncFront(st)
-			st.Close()
-			fail(err)
+		if *key == services.PhpMyAdmin {
+			fail(pmaFront())
 		}
 		fmt.Printf("%s is installed\n", *key)
+		if *key == "mariadb" || *key == "mysql" {
+			withDatabaseBrowser()
+		}
 	default:
 		servicesUsage()
 	}

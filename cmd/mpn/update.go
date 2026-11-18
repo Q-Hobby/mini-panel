@@ -1,0 +1,249 @@
+package main
+
+import (
+	"context"
+	"crypto/tls"
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"os/exec"
+	"os/user"
+	"runtime"
+	"strconv"
+	"strings"
+	"time"
+
+	"mpn/internal/update"
+)
+
+// insecureLocal is for asking the panel on 127.0.0.1 whether it answers: its certificate may be self-signed or for a name, and
+// nothing is sent but a GET of the sign-in page.
+func insecureLocal() *http.Transport {
+	return &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}} // #nosec G402 -- loopback health check only
+}
+
+// The program is replaced by "mpn update", which the web panel starts through the root helper (op panel.update). It downloads the
+// release, checks it against the key built into this program (update.Check), keeps the program that runs as mpn.prev, puts the
+// new one in place and runs "mpn panel migrate". When the panel does not answer afterwards, it puts mpn.prev back.
+
+const (
+	mpnPrev       = "/usr/local/bin/mpn.prev"
+	updateUnit    = "mpn-update"
+	updateLogPath = "/var/lib/mpn-web/update.log" // the panel shows it; owned by mpn-web
+)
+
+func runUpdate(args []string) {
+	fs := flag.NewFlagSet("update", flag.ExitOnError)
+	want := fs.String("version", "", "the release to install, such as 1.2.0 (default: the latest)")
+	check := fs.Bool("check", false, "only say whether a newer release exists")
+	allowOlder := fs.Bool("allow-older", false, "allow a release older than the one that runs")
+	apply := fs.Bool("apply", false, "replace the program (Linux, root)")
+	detach := fs.Bool("detach", false, "run in the background as the systemd unit "+updateUnit+" (the web panel uses it)")
+	_ = fs.Parse(args)
+
+	current, err := update.ParseVersion(version)
+	if err != nil && !*allowOlder {
+		fail(fmt.Errorf("this program has no release number (%s); install a release with install.sh", version))
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	tag := *want
+	if tag == "" {
+		tag, err = latestTag(ctx)
+		fail(err)
+	}
+	target, err := update.ParseVersion(tag)
+	fail(err)
+	if *check {
+		if current.Less(target) {
+			fmt.Printf("%s is available (this is %s)\n", target, current)
+		} else {
+			fmt.Printf("%s is the latest; this is %s\n", target, current)
+		}
+		return
+	}
+	if !*apply {
+		fmt.Printf("would install %s over %s, after checking its signature\n(dry run: add -apply to do it)\n", target, current)
+		return
+	}
+	requireLinuxRoot()
+	if *detach {
+		// The web panel is restarted by the update, so the work must not run inside its request.
+		a := []string{"--collect", "--quiet", "--unit=" + updateUnit, "--description=mpn: update", mpnPath, "update", "-apply", "-version", target.String()}
+		if *allowOlder {
+			a = append(a, "-allow-older")
+		}
+		if out, err := exec.Command("systemd-run", a...).CombinedOutput(); err != nil {
+			if strings.Contains(string(out), "already") {
+				fail(errors.New("update-busy: an update is already running"))
+			}
+			fail(fmt.Errorf("could not start the update: %v %s", err, strings.TrimSpace(string(out))))
+		}
+		fmt.Println("the update has started in the background")
+		return
+	}
+	logf, _ := os.OpenFile(updateLogPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o640)
+	say := func(format string, a ...any) {
+		line := fmt.Sprintf(format, a...)
+		fmt.Println(line)
+		if logf != nil {
+			fmt.Fprintln(logf, time.Now().Format("15:04:05"), line)
+		}
+	}
+	if logf != nil {
+		defer logf.Close()
+		if u, err := user.Lookup("mpn-web"); err == nil {
+			uid, _ := strconv.Atoi(u.Uid)
+			gid, _ := strconv.Atoi(u.Gid)
+			_ = os.Chown(updateLogPath, uid, gid)
+		}
+	}
+	if err := installRelease(ctx, target, current, *allowOlder, say); err != nil {
+		say("FAILED: %v", err)
+		os.Exit(2)
+	}
+}
+
+func installRelease(ctx context.Context, target, current update.Version, allowOlder bool, say func(string, ...any)) error {
+	asset := "mpn_linux_" + runtime.GOARCH
+	base := "https://github.com/" + update.Repo + "/releases/download/v" + target.String() + "/"
+	say("downloading %s %s", target, asset)
+	sums, err := fetch(ctx, base+"SHA256SUMS", 64<<10)
+	if err != nil {
+		return err
+	}
+	sig, err := fetch(ctx, base+"SHA256SUMS.minisig", 4<<10)
+	if err != nil {
+		return fmt.Errorf("the release has no signature (%v); releases before 1.2.0 are not signed, install them with install.sh", err)
+	}
+	bin, err := fetch(ctx, base+asset, 256<<20)
+	if err != nil {
+		return err
+	}
+	v, err := update.Check(update.ReleaseKey, sums, sig, bin, asset, current, allowOlder)
+	if err != nil {
+		return err
+	}
+	if v != target {
+		return fmt.Errorf("the signature is for %s, not %s", v, target)
+	}
+	say("signature and checksum are good")
+
+	tmp := mpnPath + ".new"
+	if err := os.WriteFile(tmp, bin, 0o755); err != nil {
+		return err
+	}
+	if out, err := exec.Command(tmp, "version").Output(); err != nil || strings.TrimSpace(string(out)) != v.String() {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("the new program does not run here (%v %q)", err, strings.TrimSpace(string(out)))
+	}
+	if err := copyFile(mpnPath, mpnPrev); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("could not keep the old program: %w", err)
+	}
+	if err := os.Rename(tmp, mpnPath); err != nil {
+		return err
+	}
+	say("the program is %s; the old one is kept as %s", v, mpnPrev)
+
+	restart := func() error {
+		return exec.Command("systemctl", "restart", "mpn-root", "mpn-web").Run()
+	}
+	_ = restart()
+	if out, err := exec.Command(mpnPath, "panel", "migrate", "-apply").CombinedOutput(); err != nil {
+		say("mpn panel migrate: %s", strings.TrimSpace(string(out)))
+		return rollBack(restart, say, fmt.Errorf("mpn panel migrate failed: %w", err))
+	}
+	if err := panelAnswers(); err != nil {
+		return rollBack(restart, say, err)
+	}
+	say("done: the panel runs %s", v)
+	return nil
+}
+
+// rollBack puts the previous program back after a failed update and restarts the panel with it.
+func rollBack(restart func() error, say func(string, ...any), cause error) error {
+	say("putting the previous program back")
+	if err := copyFile(mpnPrev, mpnPath+".new"); err == nil {
+		_ = os.Chmod(mpnPath+".new", 0o755)
+		_ = os.Rename(mpnPath+".new", mpnPath)
+	}
+	_ = restart()
+	return fmt.Errorf("%w; the previous program runs again", cause)
+}
+
+// panelAnswers waits up to 30 seconds for the panel to answer through nginx.
+func panelAnswers() error {
+	port := panelPortOf()
+	if port == 0 {
+		port = 2610
+	}
+	c := &http.Client{Timeout: 3 * time.Second, Transport: insecureLocal()}
+	var last error
+	for i := 0; i < 15; i++ {
+		resp, err := c.Get(fmt.Sprintf("https://127.0.0.1:%d/login", port))
+		if err == nil {
+			resp.Body.Close()
+			if resp.StatusCode == 200 {
+				return nil
+			}
+			err = fmt.Errorf("the sign-in page answered %d", resp.StatusCode)
+		}
+		last = err
+		time.Sleep(2 * time.Second)
+	}
+	return fmt.Errorf("the panel does not answer after the update: %v", last)
+}
+
+func latestTag(ctx context.Context) (string, error) {
+	// GitHub answers /releases/latest with a redirect to the tag of the newest release; the redirect is all that is read.
+	req, _ := http.NewRequestWithContext(ctx, "GET", "https://github.com/"+update.Repo+"/releases/latest", nil)
+	c := &http.Client{Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	resp, err := c.Do(req)
+	if err != nil {
+		return "", err
+	}
+	resp.Body.Close()
+	loc := resp.Header.Get("Location")
+	i := strings.LastIndex(loc, "/tag/")
+	if i < 0 {
+		return "", fmt.Errorf("could not find the latest release (%s)", resp.Status)
+	}
+	return loc[i+5:], nil
+}
+
+func fetch(ctx context.Context, url string, max int64) ([]byte, error) {
+	req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
+	resp, err := (&http.Client{Timeout: 5 * time.Minute}).Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("%s: %s", url, resp.Status)
+	}
+	b, err := io.ReadAll(io.LimitReader(resp.Body, max+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(b)) > max {
+		return nil, fmt.Errorf("%s is larger than %d bytes", url, max)
+	}
+	return b, nil
+}
+
+func copyFile(from, to string) error {
+	b, err := os.ReadFile(from)
+	if err != nil {
+		return err
+	}
+	tmp := to + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o755); err != nil {
+		return err
+	}
+	return os.Rename(tmp, to)
+}

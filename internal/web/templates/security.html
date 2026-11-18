@@ -148,6 +148,22 @@
   </form>
 </section>
 
+<section class="card mt-4 p-6">
+  <div class="flex flex-wrap items-start justify-between gap-3">
+    <div class="min-w-0">
+      <h2 class="h-section">{{T "sec.cf.title"}}</h2>
+      <p class="mt-1 text-sm text-muted-foreground">{{T "sec.cf.sub"}}</p>
+    </div>
+    <span>{{if $s.CloudflareIP}}<span class="badge-teal">{{T "sec.f2b.on"}}</span>{{else}}<span class="badge-gray">{{T "sec.f2b.off"}}</span>{{end}}</span>
+  </div>
+  <form method="post" action="/security/cloudflare" class="mt-5">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    {{if $s.CloudflareIP}}<button name="on" value="0" class="btn-secondary">{{T "sec.cf.disable"}}</button>
+    {{else}}<button name="on" value="1" class="btn-primary">{{T "sec.cf.enable"}}</button>{{end}}
+  </form>
+  <p class="hint">{{T "sec.cf.hint"}}</p>
+</section>
+
 {{if $s.Jails}}
 <h2 class="h-section mt-8 mb-3">{{T "sec.jails"}}</h2>
 <div class="table-wrap">

@@ -13,12 +13,12 @@ node_modules/
 *.pem
 *.key
 
-# Tests and the tools used only to test stay on the developer's disk and are not published.
-*_test.go
-testdata/
-internal/sshtest/
-tools/wscheck/
+# Tests are published from 1.2.0 and run in CI; only the browser checks, which need a local Edge, stay on the developer's disk.
 scripts/browser-check.ps1
+
+# scratch folders of trials on test servers, and design notes
+/.g1test/
+/design-system/
 
 # local scratch and build output
 /.tmp-*/

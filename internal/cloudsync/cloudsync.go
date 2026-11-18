@@ -1,8 +1,8 @@
-// Package cloudsync copies the backups of a site to a cloud drive and keeps the copies tidy. It knows nothing about Google: it works
-// with the small Drive interface, so it can be tested with a drive in memory.
+// Package cloudsync copies the backups of a site to storage outside the server and keeps the copies tidy. It knows nothing about the
+// storage: it works with the small Remote interface, so it can be tested with storage in memory.
 //
-// On the drive a backup is a folder <root>/<site>/<stamp>/ holding the same files as /var/backups/mpn/<site>/<stamp>/. MANIFEST is
-// uploaded last, so a folder without it is a copy that was cut off, and is made again.
+// In the storage a backup is a folder <site>/<stamp>/ under mpn-backups, holding the same files as /var/backups/mpn/<site>/<stamp>/.
+// MANIFEST is uploaded last, so a folder without it is a copy that was cut off, and is made again.
 package cloudsync
 
 import (
@@ -14,20 +14,23 @@ import (
 	"sort"
 
 	"mpn/internal/backup"
-	"mpn/internal/gdrive"
 	"mpn/internal/site"
 )
 
-// RootName is the folder in the drive that holds everything mpn uploads.
-const RootName = "mpn-backups"
+// Entry is one item of a listing of the storage.
+type Entry struct {
+	Name string
+	Dir  bool
+	Size int64
+}
 
-// Drive is what the sync needs from a cloud drive.
-type Drive interface {
-	EnsureFolder(ctx context.Context, parent, name string) (string, error)
-	List(ctx context.Context, parent string) ([]gdrive.File, error)
-	Upload(ctx context.Context, parent, name, path string) (string, error)
-	Delete(ctx context.Context, id string) error
-	Download(ctx context.Context, id, path string, size int64) error
+// Remote is what the sync needs from the storage. Paths are relative to the folder mpn-backups and use "/"; "" is that folder.
+type Remote interface {
+	List(ctx context.Context, dir string) ([]Entry, error) // a folder that does not exist is empty
+	Upload(ctx context.Context, dir, name, localPath string) error
+	Download(ctx context.Context, remotePath, localPath string) error // checks what arrived as well as the storage allows
+	Purge(ctx context.Context, dir string) error                      // a folder that is already gone is not an error
+	Mkdir(ctx context.Context, dir string) error
 }
 
 // fileRe names the files of a backup that are uploaded; anything else in the folder stays where it is.
@@ -36,40 +39,40 @@ var fileRe = regexp.MustCompile(`^(files\.tar\.gz|[A-Za-z0-9_]{1,64}\.sql\.gz|MA
 // Result says what a sync did.
 type Result struct {
 	Uploaded []string // stamps copied now
-	Deleted  []string // stamps removed from the drive
-	Present  int      // finished copies on the drive afterwards
+	Deleted  []string // stamps removed from the storage
+	Present  int      // finished copies in the storage afterwards
 }
 
-// Stamps lists the finished and the unfinished copies on the drive, as folder ids by stamp.
-type remote struct{ complete, partial map[string]string }
+// remote holds the finished and the unfinished copies of a site, by stamp.
+type remote struct{ complete, partial map[string]bool }
 
-func listRemote(ctx context.Context, d Drive, siteFolder string) (remote, error) {
-	r := remote{complete: map[string]string{}, partial: map[string]string{}}
-	folders, err := d.List(ctx, siteFolder)
+func listRemote(ctx context.Context, r Remote, siteName string) (remote, error) {
+	out := remote{complete: map[string]bool{}, partial: map[string]bool{}}
+	folders, err := r.List(ctx, siteName)
 	if err != nil {
-		return r, err
+		return out, err
 	}
 	for _, f := range folders {
-		if !f.IsFolder() || !backup.ValidStamp(f.Name) {
+		if !f.Dir || !backup.ValidStamp(f.Name) {
 			continue
 		}
-		inside, err := d.List(ctx, f.ID)
+		inside, err := r.List(ctx, siteName+"/"+f.Name)
 		if err != nil {
-			return r, err
+			return out, err
 		}
 		done := false
 		for _, x := range inside {
-			if x.Name == "MANIFEST" && !x.IsFolder() {
+			if x.Name == "MANIFEST" && !x.Dir {
 				done = true
 			}
 		}
 		if done {
-			r.complete[f.Name] = f.ID
+			out.complete[f.Name] = true
 		} else {
-			r.partial[f.Name] = f.ID
+			out.partial[f.Name] = true
 		}
 	}
-	return r, nil
+	return out, nil
 }
 
 // filesOf returns the files of a backup in the order to upload them: MANIFEST last.
@@ -97,10 +100,10 @@ func filesOf(dir string) ([]string, error) {
 	return append(names, "MANIFEST"), nil
 }
 
-// SyncSite makes the drive hold the newest `keep` finished backups of the site. local is the list of finished local stamps and dirOf
-// the folder of one of them. The newest are uploaded first, so the most useful copy is on the drive before the others. A failure
-// stops at the first problem: what was uploaded stays, and the next sync goes on from there.
-func SyncSite(ctx context.Context, d Drive, rootID, siteName string, local []string, dirOf func(stamp string) string, keep int, log io.Writer) (Result, error) {
+// SyncSite makes the storage hold the newest `keep` finished backups of the site. local is the list of finished local stamps and dirOf
+// the folder of one of them. The newest are uploaded first, so the most useful copy is there before the others. A failure stops at the
+// first problem: what was uploaded stays, and the next sync goes on from there.
+func SyncSite(ctx context.Context, r Remote, siteName string, local []string, dirOf func(stamp string) string, keep int, log io.Writer) (Result, error) {
 	var res Result
 	if !site.ValidName(siteName) {
 		return res, fmt.Errorf("invalid site name %q", siteName)
@@ -108,30 +111,27 @@ func SyncSite(ctx context.Context, d Drive, rootID, siteName string, local []str
 	if keep < 1 {
 		return res, fmt.Errorf("keep at least one backup")
 	}
-	siteFolder, err := d.EnsureFolder(ctx, rootID, siteName)
+	if err := r.Mkdir(ctx, siteName); err != nil {
+		return res, err
+	}
+	rem, err := listRemote(ctx, r, siteName)
 	if err != nil {
 		return res, err
 	}
-	rem, err := listRemote(ctx, d, siteFolder)
-	if err != nil {
-		return res, err
-	}
-	// The newest `keep` local backups are the ones worth having on the drive.
+	// The newest `keep` local backups are the ones worth having in the storage.
 	want := append([]string(nil), local...)
 	sort.Sort(sort.Reverse(sort.StringSlice(want)))
 	if len(want) > keep {
 		want = want[:keep]
 	}
 	for _, stamp := range want {
-		if !backup.ValidStamp(stamp) {
+		if !backup.ValidStamp(stamp) || rem.complete[stamp] {
 			continue
 		}
-		if _, ok := rem.complete[stamp]; ok {
-			continue
-		}
-		if id, ok := rem.partial[stamp]; ok {
-			fmt.Fprintf(log, "%s: the copy of %s on the drive was cut off, making it again\n", siteName, stamp)
-			if err := d.Delete(ctx, id); err != nil {
+		dir := siteName + "/" + stamp
+		if rem.partial[stamp] {
+			fmt.Fprintf(log, "%s: the copy of %s in the storage was cut off, making it again\n", siteName, stamp)
+			if err := r.Purge(ctx, dir); err != nil {
 				return res, err
 			}
 			delete(rem.partial, stamp)
@@ -140,17 +140,16 @@ func SyncSite(ctx context.Context, d Drive, rootID, siteName string, local []str
 		if err != nil {
 			return res, err
 		}
-		folder, err := d.EnsureFolder(ctx, siteFolder, stamp)
-		if err != nil {
+		if err := r.Mkdir(ctx, dir); err != nil {
 			return res, err
 		}
 		for _, n := range names {
-			fmt.Fprintf(log, "%s/%s: uploading %s\n", siteName, stamp, n)
-			if _, err := d.Upload(ctx, folder, n, dirOf(stamp)+"/"+n); err != nil {
-				return res, fmt.Errorf("%s/%s/%s: %w", siteName, stamp, n, err)
+			fmt.Fprintf(log, "%s: uploading %s\n", dir, n)
+			if err := r.Upload(ctx, dir, n, dirOf(stamp)+"/"+n); err != nil {
+				return res, fmt.Errorf("%s/%s: %w", dir, n, err)
 			}
 		}
-		rem.complete[stamp] = folder
+		rem.complete[stamp] = true
 		res.Uploaded = append(res.Uploaded, stamp)
 	}
 	// Tidy up: only folders named like a backup are ever touched.
@@ -159,8 +158,8 @@ func SyncSite(ctx context.Context, d Drive, rootID, siteName string, local []str
 		done = append(done, s)
 	}
 	for _, stamp := range backup.Expired(done, keep) {
-		fmt.Fprintf(log, "%s: removing the old copy %s from the drive\n", siteName, stamp)
-		if err := d.Delete(ctx, rem.complete[stamp]); err != nil {
+		fmt.Fprintf(log, "%s: removing the old copy %s from the storage\n", siteName, stamp)
+		if err := r.Purge(ctx, siteName+"/"+stamp); err != nil {
 			return res, err
 		}
 		delete(rem.complete, stamp)
@@ -172,9 +171,9 @@ func SyncSite(ctx context.Context, d Drive, rootID, siteName string, local []str
 			newest = s
 		}
 	}
-	for stamp, id := range rem.partial { // a cut-off copy older than the newest finished one will never be finished
+	for stamp := range rem.partial { // a cut-off copy older than the newest finished one will never be finished
 		if stamp < newest {
-			if err := d.Delete(ctx, id); err != nil {
+			if err := r.Purge(ctx, siteName+"/"+stamp); err != nil {
 				return res, err
 			}
 			res.Deleted = append(res.Deleted, stamp)

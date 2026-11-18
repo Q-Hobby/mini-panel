@@ -30,6 +30,35 @@ const (
 // hashSlot lets one hash run at a time, so a flood of login attempts cannot use more than one hash's memory.
 var hashSlot = make(chan struct{}, 1)
 
+// hashWaiting counts the sign-ins waiting for hashSlot. Beyond maxHashWaiting a sign-in is turned away at once (ErrBusy) instead of
+// queueing: a flood from many addresses would otherwise keep one core busy and make the administrator wait behind it.
+var (
+	hashWaitMu  sync.Mutex
+	hashWaiting int
+)
+
+const maxHashWaiting = 4
+
+// ErrBusy means too many sign-ins are being checked at this moment; the caller answers 429 and the person tries again shortly.
+var ErrBusy = errors.New("too many sign-ins at once")
+
+// CheckLimited is Check, but refuses with ErrBusy instead of waiting when too many hashes are queued already.
+func (a Account) CheckLimited(user, pw string) (bool, error) {
+	hashWaitMu.Lock()
+	if hashWaiting >= maxHashWaiting {
+		hashWaitMu.Unlock()
+		return false, ErrBusy
+	}
+	hashWaiting++
+	hashWaitMu.Unlock()
+	defer func() {
+		hashWaitMu.Lock()
+		hashWaiting--
+		hashWaitMu.Unlock()
+	}()
+	return a.Check(user, pw), nil
+}
+
 var b64 = base64.RawStdEncoding
 
 // Hash returns the encoded argon2id hash of pw: "argon2id$memKiB,time,threads$salt$key".
@@ -147,6 +176,68 @@ func SaveAccount(path string, a Account, uid, gid int) error {
 		}
 	}
 	return os.Rename(tmp.Name(), path)
+}
+
+// WriteOwned writes a small secret file the way SaveAccount writes the account: readable by its owner only, given to uid:gid, moved
+// into place in one step.
+func WriteOwned(path string, data []byte, uid, gid int) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".secret-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	if err := tmp.Chmod(0o600); err != nil && !isWindows() {
+		tmp.Close()
+		return err
+	}
+	if uid >= 0 {
+		if err := tmp.Chown(uid, gid); err != nil {
+			tmp.Close()
+			return err
+		}
+	}
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), path)
+}
+
+// CreateAccount writes the first account, only where no account file is. It fails with an error that is fs.ErrExist when one is
+// there, so the page that makes the first account can never replace one: the file is linked into place, which fails rather than
+// overwrite (a rename would overwrite).
+func CreateAccount(path string, a Account) error {
+	if a.User == "" || a.Hash == "" {
+		return errors.New("account needs a user and a hash")
+	}
+	b, err := json.Marshal(a)
+	if err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".account-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	if err := tmp.Chmod(0o600); err != nil && !isWindows() {
+		tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(b); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Link(tmp.Name(), path)
 }
 
 func isWindows() bool { return os.PathSeparator == '\\' }

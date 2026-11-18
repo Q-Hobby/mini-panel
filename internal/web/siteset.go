@@ -169,7 +169,7 @@ func (s *Server) settingsRequest(r *http.Request, row siteRow, info siteInfo) (c
 			return req, T("set.err.entry")
 		}
 		var err error
-		if req.Port, err = strconv.Atoi(get("port")); err != nil || !site.ValidAppPort(req.Port) {
+		if req.Port, err = appPortField(get("port")); err != nil {
 			return req, T("set.err.port")
 		}
 		if m := get("mem"); m != "" {
@@ -186,7 +186,7 @@ func (s *Server) settingsRequest(r *http.Request, row siteRow, info siteInfo) (c
 			return req, T("set.err.pyentry")
 		}
 		var err error
-		if req.Port, err = strconv.Atoi(get("port")); err != nil || !site.ValidAppPort(req.Port) {
+		if req.Port, err = appPortField(get("port")); err != nil {
 			return req, T("set.err.port")
 		}
 		if m := get("mem"); m != "" {
@@ -201,6 +201,18 @@ func (s *Server) settingsRequest(r *http.Request, row siteRow, info siteInfo) (c
 		}
 	}
 	return req, ""
+}
+
+// appPortField reads the port of an app from the form: empty means a Unix socket (0), a number must be a port an app may use.
+func appPortField(v string) (int, error) {
+	if strings.TrimSpace(v) == "" {
+		return 0, nil
+	}
+	p, err := strconv.Atoi(strings.TrimSpace(v))
+	if err != nil || !site.ValidAppPort(p) {
+		return 0, fmt.Errorf("invalid port %q", v)
+	}
+	return p, nil
 }
 
 func (s *Server) saveSettings(w http.ResponseWriter, r *http.Request, ss webauth.Session) {

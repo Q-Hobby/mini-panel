@@ -11,7 +11,7 @@ import (
 // sign-on, by path. They are what a first install writes. mpn panel sync writes them again when they differ, so a machine whose browser
 // was installed before one of them changed (as /pma/ did) gets the change without installing the browser again.
 func PMAFiles(panelPort int) map[string]string {
-	repl := strings.NewReplacer("@BACKEND@", fmt.Sprint(PanelBackendPort), "@PANELPORT@", fmt.Sprint(panelPort))
+	repl := strings.NewReplacer("@BACKEND@", PanelSocket, "@PANELPORT@", fmt.Sprint(panelPort))
 	return map[string]string{
 		pmaDir + "/config.inc.php": pmaConfig(),
 		pmaDir + "/signon.php":     repl.Replace(pmaSignon),

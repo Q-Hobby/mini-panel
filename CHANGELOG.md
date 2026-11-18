@@ -1,70 +1,101 @@
-# Nhật ký thay đổi
+# Changelog
 
-Mọi thay đổi đáng kể của Mini Panel được ghi ở đây. Số phiên bản theo [Semantic Versioning](https://semver.org/lang/vi/).
+All notable changes to Mini Panel are recorded here. Version numbers follow [Semantic Versioning](https://semver.org/).
 
-Bản dịch: [English](CHANGELOG.en.md) · [中文](CHANGELOG.zh.md).
+Translations: [Tiếng Việt](CHANGELOG.vi.md) · [中文](CHANGELOG.zh.md).
+
+## [1.2.0] - 2026-11-18
+
+### Added
+
+- Update the panel from the interface (Settings, Updates) or with `mpn update -apply`. Each release's `SHA256SUMS` is signed with minisign, and the panel accepts only a release whose signature matches the key built into the program. The signed comment names the version, so an old release cannot be passed off as a new one. The running program is kept as `/usr/local/bin/mpn.prev` and put back if the panel does not answer after the update.
+- Off-site backup copies now go through rclone: Google Drive, S3 (Cloudflare R2, AWS, Wasabi…), Backblaze B2, SFTP, WebDAV (Nextcloud, ownCloud) and FTP/FTPS. A connection is saved only after the panel has written, read back and deleted a test file. The form passes rclone only the fields on a fixed list, so no option can run a command or read a file of the machine.
+- An option to see visitors' real addresses when sites are behind Cloudflare (Security, or `mpn security cloudflare -on -apply`). nginx takes the address from `CF-Connecting-IP`, but only on connections from Cloudflare's published networks. Off by default.
+- Installing MariaDB or MySQL also installs phpMyAdmin, so the Databases tab can open it straight away.
+- `mpn panel migrate` brings a machine installed by an older version to the configuration a fresh install writes. The installer and `mpn update` run it.
+
+### Changed
+
+- The panel listens on the Unix socket `/run/mpn-web/web.sock`, which systemd creates and keeps (`mpn-web.socket`), instead of `127.0.0.1:8780`. Only nginx and phpMyAdmin (group `mpn-front`) can connect. The socket stays while the panel restarts, so no other program can take its place. The client address in `X-Real-IP` is trusted only when the panel listens on that socket.
+- New Node.js and Python sites (Debian, Ubuntu) listen on the Unix socket `/run/mpn-app/<site>/app.sock` and open no TCP port. Only nginx can connect. The socket path is in `SOCKET`, and `PORT` holds the same path, because Node.js's `listen(process.env.PORT)` accepts a path. An empty port field means the socket; a port number makes the app listen on `127.0.0.1` as before. Existing sites keep their port. On the RHEL family apps still use a port.
+- The setup page `/setup` opens only with a link that carries a one-time key. The installer prints it, the SSH login message shows it until the account exists, and `mpn web setup-link` prints it again. Before, whoever opened `/setup` first created the account.
+- Node.js is installed only when `SHASUMS256.txt` carries a valid signature of a Node.js releaser. It is checked with `gpgv` against 29 keys built into mpn, so neither nodejs.org nor a mirror can choose the keys. `gpgv` is in the base packages.
+- A backup's MANIFEST holds the SHA-256 of each file and an HMAC made with the machine's own key (`/etc/mpn/backup.key`, mode 0600). A backup downloaded from off-site storage must be signed by this machine, and each file must match its sum.
+- A hand-written vHost may not log outside `/var/log/mpn/sites/<site>/`, and directives that read files or affect the whole machine (`include`, `load_module`, `ssl_certificate` outside the site's certificate folders, `*_temp_path`, `*_cache_path`, `user`, `pid`…) are refused. nginx opens log files as root before it switches to the worker account.
+- Laravel gets `DB_HOST=localhost` (over the Unix socket), as WordPress and CodeIgniter already did.
+- The two-factor QR code is drawn by the panel's own code, replacing the unmaintained go-qrcode library.
+- Commands and operations that run as root create folders inside a site's home through open folder descriptors and never follow symbolic links, so the site account cannot use a symlink to point root at another file.
+- A database cannot be created with a name that belongs more closely to another site (for example `blog_shop` when a site `blog-shop` exists).
+- When too many sign-ins are waiting to hash a password, the panel answers 429 at once instead of queueing, so a password-guessing burst cannot take all the CPU.
+- The public source includes the tests, and GitHub Actions runs gofmt, vet, the tests and govulncheck on every push.
+
+### Upgrade notes
+
+- Backups made with 1.1.x are not signed, so they can no longer be downloaded from off-site storage. Backups stored on the machine restore as before.
+- A site whose hand-written vHost uses `include` or logs elsewhere reports an error at its next apply until that part is fixed.
 
 ## [1.1.1] - 2026-11-14
 
-### Sửa
+### Fixed
 
-- Sao lưu giờ chép cả thư mục `htdocs` khi thư mục gốc web nằm bên dưới nó, ví dụ `htdocs/public` của Laravel, Flarum hay Symfony. Trước đây bản sao lưu chỉ có `public/` và thiếu `config.php`/`.env`, `storage` (tệp tải lên) và `vendor`, nên khôi phục từ đó không chạy lại được site. Site có thư mục gốc là `htdocs` không đổi gì.
-- MANIFEST của các bản sao lưu đó có thêm dòng `files_root=htdocs`, và khôi phục dựa vào dòng này: bản sao lưu cũ (chỉ có thư mục gốc web) vẫn được bung về thư mục gốc web như trước. mpn 1.1.0 trở về trước không đọc được MANIFEST mới, nên hãy nâng cấp trước khi khôi phục các bản sao lưu mới.
+- Backups now archive the whole `htdocs` folder when the web root lies below it, for example `htdocs/public` for Laravel, Flarum or Symfony. Before, a backup held only `public/` and lacked `config.php`/`.env`, `storage` (uploaded files) and `vendor`, so the site could not run again after a restore. Sites whose web root is `htdocs` itself are unchanged.
+- The MANIFEST of those backups has a new line, `files_root=htdocs`, and restore relies on it: older backups (which hold only the web root) are still extracted into the web root as before. mpn 1.1.0 and older cannot read the new MANIFEST, so upgrade before restoring new backups.
 
 ## [1.1.0] - 2026-11-13
 
-### Thêm
+### Added
 
-- Chạy trên AlmaLinux, Rocky Linux và CentOS Stream 9 và 10, cả x86_64 lẫn arm64. Nginx 1.28.3 lấy từ nginx.org và khoá bằng `dnf versionlock`; PHP 7.4 trở lên từ Remi (kèm EPEL); PHP 7.0 đến 7.3, module ModSecurity và OWASP CRS 4.25.2 lấy từ bản [el-r1](https://github.com/marixdev/mpn-packages/releases/tag/el-r1) của mpn-packages; PageSpeed từ bản [nginx-1.28.3-r3](https://github.com/marixdev/mpn-packages/releases/tag/nginx-1.28.3-r3). Mọi tệp tải về đều được kiểm SHA-256 đã ghim.
-- MariaDB lấy từ rpm.mariadb.org và MySQL từ repo.mysql.com; khoá ký của hai kho được kiểm theo fingerprint. EL10 chỉ có MySQL 8.4.
-- SELinux vẫn bật: panel gán nhãn cho thư mục website, log, socket PHP-FPM, venv của site Python, Node.js, hộp thư và cổng của panel, và bật `httpd_can_network_connect` để site gọi được cơ sở dữ liệu và mạng ngoài.
-- Bộ cài tắt firewalld, vì panel quản lý tường lửa bằng nftables.
-- Mail trên họ RHEL: mật khẩu hộp thư băm bằng bcrypt (`BLF-CRYPT`), vì Dovecot ở đó không có argon2; OpenDKIM nghe ở cổng 8891 trên loopback, vì chính sách SELinux không cho Postfix nối vào socket của nó.
+- Runs on AlmaLinux, Rocky Linux and CentOS Stream 9 and 10, on both x86_64 and arm64. Nginx 1.28.3 comes from nginx.org and is held with `dnf versionlock`; PHP 7.4 and later from Remi (with EPEL); PHP 7.0 to 7.3, the ModSecurity module and OWASP CRS 4.25.2 from the [el-r1](https://github.com/marixdev/mpn-packages/releases/tag/el-r1) release of mpn-packages; PageSpeed from the [nginx-1.28.3-r3](https://github.com/marixdev/mpn-packages/releases/tag/nginx-1.28.3-r3) release. Every download is checked against a pinned SHA-256.
+- MariaDB comes from rpm.mariadb.org and MySQL from repo.mysql.com; the signing keys of both repositories are checked by fingerprint. EL10 has MySQL 8.4 only.
+- SELinux stays enabled: the panel labels website folders, logs, PHP-FPM sockets, the venvs of Python sites, Node.js, mailboxes and the panel's port, and turns on `httpd_can_network_connect` so sites can reach their databases and outside services.
+- The installer turns off firewalld, because the panel manages the firewall with nftables.
+- Mail on the RHEL family: mailbox passwords are hashed with bcrypt (`BLF-CRYPT`), because Dovecot there has no argon2; OpenDKIM listens on port 8891 on loopback, because the SELinux policy does not let Postfix connect to its socket.
 
-### Đổi
+### Changed
 
-- Module nginx giờ nằm ở repo mpn-packages (trước là mpn-nginx-modules; địa chỉ cũ vẫn chuyển tiếp tới đây).
+- The nginx modules now live in the mpn-packages repository (formerly mpn-nginx-modules; the old address still redirects there).
 
 ## [1.0.3] - 2026-11-13
 
-### Thêm
+### Added
 
-- Chạy trên máy ARM (arm64, aarch64). Bộ cài nhận máy aarch64 và tải `mpn_linux_arm64`. Module PageSpeed và ModSecurity cho arm64 lấy từ bản [nginx-1.28.3-r2](https://github.com/marixdev/mpn-packages/releases/tag/nginx-1.28.3-r2) (build trên runner ARM của GitHub, ghim SHA-256 theo từng hệ điều hành và kiến trúc). Web mail lên [mpn-mail 1.0.2](https://github.com/marixdev/mpn-mail/releases/tag/v1.0.2), có bản `mpn-mail_linux_arm64`.
-- Bật mail tự gỡ các máy chủ thư có sẵn sẽ chiếm cổng 25 (Exim, Sendmail, OpenSMTPD) trước khi cài Postfix, thay vì dừng lại và bắt gỡ bằng tay.
+- Runs on ARM machines (arm64, aarch64). The installer recognises aarch64 and downloads `mpn_linux_arm64`. The PageSpeed and ModSecurity modules for arm64 come from the [nginx-1.28.3-r2](https://github.com/marixdev/mpn-packages/releases/tag/nginx-1.28.3-r2) release (built on GitHub's ARM runners, SHA-256 pinned per operating system and architecture). Web mail moves to [mpn-mail 1.0.2](https://github.com/marixdev/mpn-mail/releases/tag/v1.0.2), which has an `mpn-mail_linux_arm64` build.
+- Turning on mail removes existing mail servers that would hold port 25 (Exim, Sendmail, OpenSMTPD) before installing Postfix, instead of stopping and asking for them to be removed by hand.
 
-### Sửa
+### Fixed
 
-- Mail bật được trên Debian 13 (và Ubuntu 26.04): panel nhận ra Dovecot 2.4 và viết `dovecot.conf` theo cú pháp mới (`dovecot_config_version`, `mail_driver`, hạn mức `quota_storage_size`). Dovecot 2.3 giữ cấu hình cũ.
-- Bước gói cơ bản cài `cron` và bật nó: một số bản Debian 13 không có sẵn, nên tab Cron không chạy được việc nào.
+- Mail can be turned on on Debian 13 (and Ubuntu 26.04): the panel recognises Dovecot 2.4 and writes `dovecot.conf` in the new syntax (`dovecot_config_version`, `mail_driver`, the `quota_storage_size` quota). Dovecot 2.3 keeps the old configuration.
+- The base packages step installs and enables `cron`: some Debian 13 images do not have it, so the Cron tab could not run any job.
 
 ## [1.0.2] - 2026-11-12
 
-### Thêm
+### Added
 
-- Trình quản lý tệp có Cắt, Sao chép và Dán, trong menu chuột phải, trên thanh khi chọn nhiều mục và bằng phím Ctrl+X, Ctrl+C, Ctrl+V. Mục đã cắt hoặc sao chép được nhớ theo từng website trong thẻ trình duyệt đang mở, nên có thể mở thư mục khác rồi dán vào đó. Bấm chuột phải lên một thư mục sẽ dán vào chính thư mục ấy.
-- Sao chép vào chính thư mục đang chứa mục gốc thì bản sao được đặt tên `tên (copy).đuôi`, `tên (copy 2).đuôi`, v.v. Sao chép giữ quyền của tệp gốc, còn liên kết và tệp đặc biệt được bỏ qua.
+- The file manager has Cut, Copy and Paste, in the right-click menu, on the bar when several items are selected, and with Ctrl+X, Ctrl+C, Ctrl+V. Cut or copied items are remembered per website in the open browser tab, so you can open another folder and paste there. Right-clicking a folder pastes into that folder.
+- Copying into the folder that holds the original names the copy `name (copy).ext`, `name (copy 2).ext` and so on. Copies keep the permissions of the original; links and special files are skipped.
 
-### An toàn
+### Safety
 
-- Dán không bao giờ ghi đè: nếu tên đã có ở thư mục đích thì không có mục nào bị chuyển hoặc chép. Không dán được một thư mục vào chính nó hay thư mục con của nó, và không đi ra ngoài thư mục home của website.
+- Pasting never overwrites: if a name already exists in the target folder, nothing is moved or copied. A folder cannot be pasted into itself or one of its subfolders, and nothing can leave the website's home folder.
 
 ## [1.0.1] - 2026-11-12
 
-### Thêm
+### Added
 
-- Giao diện tiếng Trung giản thể (`zh`), cạnh tiếng Việt và tiếng Anh. Chọn ở nút ngôn ngữ trên thanh trên cùng, kể cả ở trang đăng nhập và `/setup`; lần đầu vào, panel chọn theo `Accept-Language` của trình duyệt.
-- Phông chữ có thêm PingFang SC, Microsoft YaHei và Noto Sans CJK SC, vì JetBrains Mono không có chữ Hán.
+- Simplified Chinese interface (`zh`), beside Vietnamese and English. Pick it with the language button in the top bar, also on the sign-in page and `/setup`; on the first visit, the panel chooses by the browser's `Accept-Language`.
+- The font stack adds PingFang SC, Microsoft YaHei and Noto Sans CJK SC, because JetBrains Mono has no Chinese characters.
 
-### Thay đổi
+### Changed
 
-- Web mail lên [mpn-mail 1.0.1](https://github.com/marixdev/mpn-mail/releases/tag/v1.0.1), bản có tiếng Trung và đi theo ngôn ngữ của panel.
-- Mô tả các thiết lập PHP trong tab Tổng quan nay hiện theo ngôn ngữ đang chọn, trước đây luôn là tiếng Việt.
-- README có thêm bản tiếng Anh ([README.en.md](README.en.md)) và tiếng Trung ([README.zh.md](README.zh.md)), kèm bảng các repo đi kèm (mpn-mail, mpn-nginx-modules).
+- Web mail moves to [mpn-mail 1.0.1](https://github.com/marixdev/mpn-mail/releases/tag/v1.0.1), which has Chinese and follows the panel's language.
+- The descriptions of the PHP settings in the Overview tab now follow the selected language; before, they were always in Vietnamese.
+- The README is now also in English and Chinese ([README.zh.md](README.zh.md)), with a table of the companion repositories (mpn-mail, mpn-nginx-modules).
 
 ## [1.0.0] - 2026-11-12
 
-Bản phát hành đầu tiên: website PHP, Node.js, Python, tĩnh và proxy; SSL Let's Encrypt; MariaDB/MySQL và phpMyAdmin; email và web mail mpn-mail 1.0.0; sao lưu; tường lửa, ModSecurity, fail2ban, 2FA; giám sát; giao diện tiếng Việt và tiếng Anh.
+First release: PHP, Node.js, Python, static and proxy websites; Let's Encrypt SSL; MariaDB/MySQL and phpMyAdmin; email and the mpn-mail 1.0.0 web mail; backups; firewall, ModSecurity, fail2ban, 2FA; monitoring; Vietnamese and English interface.
 
+[1.2.0]: https://github.com/marixdev/mini-panel/compare/v1.1.1...v1.2.0
 [1.1.1]: https://github.com/marixdev/mini-panel/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/marixdev/mini-panel/compare/v1.0.3...v1.1.0
 [1.0.3]: https://github.com/marixdev/mini-panel/compare/v1.0.2...v1.0.3

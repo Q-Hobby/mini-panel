@@ -3,10 +3,10 @@ package provision
 
 import (
 	"fmt"
-	"strings"
 
 	"mpn/internal/distro"
 	"mpn/internal/installer"
+	"mpn/internal/safedir"
 	"mpn/internal/site"
 	"mpn/internal/tune"
 	"mpn/internal/unit"
@@ -30,27 +30,34 @@ func logDirAction(s site.Site) installer.Action {
 	return installer.Run("install", "-d", "-o", "root", "-g", s.User, "-m", "0750", LogDir(s.Name))
 }
 
-// createRootScript creates the web root only when nothing is there yet. Running chmod or install on an existing path
-// as root would follow a symlink the site user had put in its place (the user owns the parent directory), so a
-// later apply must never touch it. A dangling symlink counts as present.
-func createRootScript(user, root string) string {
-	one := func(p string) string {
-		return fmt.Sprintf("if [ ! -e %[2]s ] && [ ! -L %[2]s ]; then install -d -o %[1]s -g %[3]s %[2]s && chmod 2750 %[2]s; fi", user, p, distro.WebUser())
-	}
-	// A root below htdocs (public, for Laravel) needs every folder on the way, and htdocs itself first.
-	base := site.HtdocsOf(user)
-	cmds := []string{one(base)}
-	if sub, ok := (site.Site{User: user, Root: root}).RootSub(); ok && sub != "" {
-		p := base
-		for _, el := range strings.Split(sub, "/") {
-			p += "/" + el
-			cmds = append(cmds, one(p))
-		}
-	} else if root != base {
-		cmds = append(cmds, one(root))
-	}
-	return strings.Join(cmds, "; ")
+// MkrootBinary is the program that makes the web root; tests point it elsewhere.
+var MkrootBinary = "/usr/local/bin/mpn"
+
+// createRootAction makes the web root, and every folder on the way below htdocs, only where nothing is there yet. The user
+// owns the home directory and can swap any name in it for a symbolic link at any moment, so this is not done with install
+// and chmod on paths: "mpn site mkroot" walks the tree through folder descriptors that refuse links (internal/safedir) and
+// sets owner and mode through the descriptor of each folder it made. Folders that exist are left alone.
+func createRootAction(user, root string) installer.Action {
+	return installer.Run(MkrootBinary, "site", "mkroot", "-user", user, "-root", root)
 }
+
+// RootFolders returns the folders below the home directory of user that make up the web root root: htdocs, then each
+// folder of a root below it. A root outside htdocs is refused (Validate already keeps roots inside it).
+func RootFolders(user, root string) ([]string, error) {
+	sub, ok := (site.Site{User: user, Root: root}).RootSub()
+	if !ok {
+		return nil, fmt.Errorf("the web root %s is not inside %s", root, site.HtdocsOf(user))
+	}
+	rel := "htdocs"
+	if sub != "" {
+		rel += "/" + sub
+	}
+	return safedir.Split(rel)
+}
+
+// RootMode is the mode of every folder of the web root mpn makes: the user writes, the web server's group reads, and the
+// setgid bit gives new files that group.
+const RootMode = 0o2750
 
 // accountMark goes into the comment field of every account mpn creates. mpn changes or deletes only an account that
 // carries the mark of that very site, so it can never take over or remove an account it did not make (a system
@@ -147,6 +154,7 @@ func RemovePlan(s site.Site, purge bool) (installer.Plan, error) {
 			installer.Run("systemctl", "disable", "--now", unit.Name(s)),
 			installer.Run("rm", "-f", "/etc/systemd/system/"+unit.Name(s)),
 			installer.Run("systemctl", "daemon-reload"),
+			installer.Run("rm", "-rf", site.AppSocketDir(s.Name)),
 		}})
 	}
 	if purge {
@@ -173,7 +181,7 @@ func Plan(s site.Site, o Options) (installer.Plan, error) {
 	plan := installer.Plan{{Name: "account and directories", Actions: []installer.Action{
 		installer.Run("sh", "-c", createAccountScript(s.User, s.Name)),
 		installer.Run("chmod", "711", home),
-		installer.Run("sh", "-c", createRootScript(s.User, s.Root)),
+		createRootAction(s.User, s.Root),
 		logDirAction(s),
 	}}}
 	if distro.IsEL() {
@@ -246,12 +254,15 @@ func Plan(s site.Site, o Options) (installer.Plan, error) {
 
 // venvScript makes the site's virtual environment with the interpreter of the version chosen, as the site's own user. An
 // environment made for another version is upgraded in place, so the packages stay. Every value in it has passed Validate.
+//
+// The environment belongs to the site user, who can put any program at venv/bin/python. Root never runs anything from it:
+// asking that interpreter for its version is done as the site user too, like making the environment.
 func venvScript(s site.Site) string {
 	py, venv := "/usr/bin/python"+s.PyVersion, site.VenvDir(s.User)
 	return fmt.Sprintf(`py=%[1]s; venv=%[2]s
 [ -x "$py" ] || { echo "Python %[3]s is not installed on this machine (install the package %[5]s)" >&2; exit 2; }
 if [ -x "$venv/bin/python" ]; then
-  [ "$("$venv/bin/python" -c 'import sys; print("%%d.%%d" %% sys.version_info[:2])')" = %[3]s ] && exit 0
+  [ "$(runuser -u %[4]s -- "$venv/bin/python" -c 'import sys; print("%%d.%%d" %% sys.version_info[:2])')" = %[3]s ] && exit 0
   action=--upgrade
 else
   action=

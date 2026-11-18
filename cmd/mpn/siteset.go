@@ -1,12 +1,14 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"maps"
 	"slices"
 	"strings"
 
+	"mpn/internal/distro"
 	"mpn/internal/provision"
 	"mpn/internal/site"
 	"mpn/internal/tune"
@@ -37,7 +39,7 @@ func siteSet(args []string) {
 	node := fs.String("node", "", "Node.js major version, node sites only")
 	python := fs.String("python", "", "Python 3 minor version such as 3.12, python sites only")
 	entry := fs.String("entry", "", "start script relative to the root (python also accepts \"-m module\"), node and python sites only")
-	port := fs.Int("port", 0, "port of the app, node and python sites only")
+	port := fs.Int("port", 0, "port of the app, or 0 for a Unix socket, node and python sites only")
 	mem := fs.Int("mem", 0, "memory the app may use in MB, 0 for the default, node and python sites only")
 	upstream := fs.String("upstream", "", "http(s) URL, proxy sites only")
 	apply := fs.Bool("apply", false, "make the changes on this machine (Linux, root); otherwise the plan is only printed")
@@ -110,7 +112,12 @@ func siteSet(args []string) {
 	if given["entry"] {
 		cur.Entry = *entry
 	}
-	if given["port"] {
+	if given["port"] && *port == 0 && distro.IsEL() {
+		fail(errors.New("on the RHEL family an app listens on a port; give -port with a number"))
+	}
+	if given["port"] && *port == 0 {
+		cur.NodePort = 0 // a Unix socket
+	} else if given["port"] {
 		cur.NodePort = *port
 		if f := mpnPortHolder(*port); f != "" {
 			fail(fmt.Errorf("port %d is used by the panel (%s); an app needs another port", *port, f))

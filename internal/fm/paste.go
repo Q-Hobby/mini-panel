@@ -171,7 +171,9 @@ func (c Client) Copy(srcRel string, names []string, dstRel string, lim Limits) (
 }
 
 // rel turns an absolute path inside the home directory back into the relative form the other methods take.
-func (c Client) rel(abs string) string { return strings.TrimPrefix(strings.TrimPrefix(abs, c.Root), "/") }
+func (c Client) rel(abs string) string {
+	return strings.TrimPrefix(strings.TrimPrefix(abs, c.Root), "/")
+}
 
 func (c Client) copyFile(from, to string, perm os.FileMode, room int64) (int64, error) {
 	if c.exists(to) {

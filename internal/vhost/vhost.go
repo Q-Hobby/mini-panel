@@ -162,13 +162,107 @@ func CheckCustom(text string, ssl bool) error {
 	return nil
 }
 
+// CheckCustomFor adds the checks that depend on the site. nginx opens its log files as root before it drops to its worker
+// account, so a log line of a hand-written configuration could make root create or append to any file, such as one in /etc,
+// and include, load_module and the like could read files of other sites or load code. Log files must therefore be in the
+// site's own log folder, and the directives that reach other files or the whole server are refused.
+func CheckCustomFor(text, siteName string, ssl bool) error {
+	if err := CheckCustom(text, ssl); err != nil {
+		return err
+	}
+	dir := "/var/log/mpn/sites/" + siteName + "/"
+	for i, line := range strings.Split(stripComments(text), "\n") {
+		// A statement ends at ";", and a block opens or closes at "{" and "}": each of them starts a new statement, so the
+		// directive inside "location / { access_log ...; }" is read as a directive too.
+		for _, stmt := range strings.FieldsFunc(line, func(r rune) bool { return r == ';' || r == '{' || r == '}' }) {
+			f := strings.Fields(stmt)
+			for j := 0; j < len(f); j++ {
+				name := f[j]
+				switch name {
+				case "include", "load_module", "ssl_certificate", "ssl_certificate_key", "ssl_trusted_certificate", "ssl_client_certificate",
+					"ssl_dhparam", "ssl_crl", "ssl_password_file", "ssl_stapling_file", "ssl_session_ticket_key", "auth_basic_user_file",
+					"lua_package_path", "perl_modules", "perl_require", "js_import", "js_path", "pid", "lock_file", "user", "working_directory",
+					"client_body_temp_path", "proxy_temp_path", "fastcgi_temp_path", "uwsgi_temp_path", "scgi_temp_path",
+					"proxy_cache_path", "fastcgi_cache_path", "uwsgi_cache_path", "scgi_cache_path":
+					if !allowedPathDirective(name, f[j+1:], siteName) {
+						return fmt.Errorf("line %d: %s is not allowed in a configuration written by hand", i+1, name)
+					}
+				case "access_log", "error_log":
+					if j+1 >= len(f) {
+						break
+					}
+					p := strings.Trim(f[j+1], `"'`)
+					if p == "off" || p == "stderr" || strings.HasPrefix(p, "syslog:") || strings.HasPrefix(p, "memory:") {
+						break
+					}
+					if strings.ContainsAny(p, "$") || !strings.HasPrefix(p, dir) || strings.Contains(p[len(dir):], "/") || strings.Contains(p, "..") {
+						return fmt.Errorf("line %d: %s must write to a file in %s (it is %s)", i+1, name, dir, p)
+					}
+				}
+				break // only the first word of a statement is its directive
+			}
+		}
+	}
+	return nil
+}
+
+// allowedPathDirective lets through the few uses of those directives the panel's own configuration has: the certificate of the
+// site that mpn manages, and the files mpn ships for every site.
+func allowedPathDirective(name string, args []string, siteName string) bool {
+	if len(args) == 0 {
+		return false
+	}
+	p := strings.Trim(args[0], `"'`)
+	if strings.Contains(p, "..") || strings.Contains(p, "$") {
+		return false
+	}
+	switch name {
+	case "ssl_certificate", "ssl_certificate_key":
+		return strings.HasPrefix(p, "/etc/letsencrypt/live/") || strings.HasPrefix(p, "/etc/mpn/certs/"+siteName+"/") || strings.HasPrefix(p, DefaultCertDir+"/")
+	case "include":
+		// The files of nginx and of mpn that the configurations mpn writes include: fastcgi and proxy parameters, the switch of the
+		// firewall and the default page.
+		switch p {
+		case "fastcgi_params", "/etc/nginx/fastcgi_params", "proxy_params", "/etc/nginx/proxy_params", "/etc/nginx/snippets/fastcgi-php.conf",
+			"/etc/mpn/modsec/off.d/*.conf", "/etc/nginx/mpn-default-page.conf":
+			return true
+		}
+	}
+	return false
+}
+
+// stripComments removes what follows a # on each line, outside quotes.
+func stripComments(s string) string {
+	var b strings.Builder
+	for _, line := range strings.Split(s, "\n") {
+		q := byte(0)
+		cut := len(line)
+		for i := 0; i < len(line); i++ {
+			c := line[i]
+			switch {
+			case q != 0 && c == q:
+				q = 0
+			case q == 0 && (c == '"' || c == '\''):
+				q = c
+			case q == 0 && c == '#':
+				cut = i
+				i = len(line)
+			}
+		}
+		b.WriteString(line[:cut])
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
+
 // Render validates the site and returns the nginx config for it: the one a person wrote, when there is one.
 func Render(s site.Site, o Options) (string, error) {
 	if err := s.Validate(); err != nil {
 		return "", err
 	}
 	if s.CustomVhost != "" {
-		if err := CheckCustom(s.CustomVhost, o.TLS); err != nil {
+		// Checked again here, so a configuration saved by an older mpn is held to the same rules before nginx loads it as root.
+		if err := CheckCustomFor(s.CustomVhost, s.Name, o.TLS); err != nil {
 			return "", err
 		}
 		return strings.TrimRight(s.CustomVhost, "\r\n") + "\n", nil

@@ -9,10 +9,10 @@ import (
 )
 
 // version is set at build time with -ldflags "-X main.version=x.y.z"; the release workflow uses the tag.
-var version = "1.0.0"
+var version = "1.2.0"
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: mpn <version|tune|plan|site|db|backup|cron|firewall|security|panel|cloud|app|wp|mail|services|root|web> [flags]")
+	fmt.Fprintln(os.Stderr, "usage: mpn <version|update|tune|plan|site|db|backup|cron|firewall|security|panel|cloud|app|wp|mail|services|root|web> [flags]")
 	os.Exit(2)
 }
 
@@ -55,6 +55,8 @@ func main() {
 		runRoot(os.Args[2:])
 	case "web":
 		runWeb(os.Args[2:])
+	case "update":
+		runUpdate(os.Args[2:])
 	default:
 		usage()
 	}

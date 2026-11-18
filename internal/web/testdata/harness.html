@@ -1,0 +1,27 @@
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  var out = [];
+  var hosts = document.querySelector('[data-hosts]'), user = document.querySelector('[data-user]'), pw = document.querySelector('[data-password]');
+  out.push((pw.value.length === 24 ? 'ok   ' : 'FAIL ') + 'password filled in when the form opens: ' + pw.value.length + ' characters');
+  function type(v) { hosts.value = v; hosts.dispatchEvent(new Event('input', { bubbles: true })); return user.value; }
+  var cases = { 'datvu.io': 'datvu', 'www.example.co.uk': 'example', 'blog.example.com': 'blog-example', '123abc.com': 'u123abc',
+    'mail.com': 'mail-web', 'Datvu.IO www.datvu.io': 'datvu', 'x--y.com': 'x-y', 'shop.example.co.uk': 'shop-example', '': 'site' };
+  Object.keys(cases).forEach(function (k) {
+    var got = type(k);
+    out.push((got === cases[k] ? 'ok   ' : 'FAIL ') + JSON.stringify(k) + ' -> ' + got + (got === cases[k] ? '' : ' (wanted ' + cases[k] + ')'));
+  });
+  user.value = 'mine'; user.dispatchEvent(new Event('input', { bubbles: true }));
+  type('other.com');
+  out.push((user.value === 'mine' ? 'ok   ' : 'FAIL ') + 'an account name edited by hand stays: ' + user.value);
+  var before = pw.value;
+  document.querySelector('[data-gen-password]').click();
+  out.push((pw.value !== before && pw.value.length === 24 ? 'ok   ' : 'FAIL ') + 'the new-password link gives another password: ' + pw.value.length + ' characters');
+  var dark = document.documentElement.classList.contains('dark');
+  document.querySelector('[data-theme-toggle]').click();
+  out.push((document.documentElement.classList.contains('dark') !== dark ? 'ok   ' : 'FAIL ') + 'theme switch works');
+  var pre = document.createElement('pre'); pre.id = 'result'; pre.textContent = out.join('\n'); document.body.appendChild(pre);
+});
+window.addEventListener('error', function (e) {
+  var pre = document.createElement('pre'); pre.id = 'error'; pre.textContent = 'SCRIPT ERROR: ' + e.message + ' at ' + e.filename + ':' + e.lineno; document.body.appendChild(pre);
+});
+</script>

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"mpn/internal/distro"
 	"mpn/internal/site"
 )
 
@@ -33,18 +34,38 @@ func Python(s site.Site, memoryMB int) (string, error) {
 		"User=" + s.User,
 		"WorkingDirectory=" + s.Root,
 		"Environment=PYTHONUNBUFFERED=1",
-		fmt.Sprintf("Environment=PORT=%d", s.NodePort),
+	}
+	lines = append(lines, listen(s)...)
+	lines = append(lines,
 		fmt.Sprintf("ExecStart=%s/bin/python %s", site.VenvDir(s.User), s.Entry),
 		"Restart=always",
 		"RestartSec=3",
 		"NoNewPrivileges=yes",
 		"PrivateTmp=yes",
-	}
+	)
 	if memoryMB > 0 {
 		lines = append(lines, fmt.Sprintf("MemoryMax=%dM", memoryMB))
 	}
 	lines = append(lines, "", "[Install]", "WantedBy=multi-user.target", "")
 	return strings.Join(lines, "\n"), nil
+}
+
+// listen says where the app listens. With a port, PORT is the number. With a socket, SOCKET is its path, and PORT is the same path,
+// because Node's server.listen(process.env.PORT) takes a path as it takes a number, so an app written for PORT keeps working. The
+// folder is made by root before the app starts ("+" runs the line with full privileges): owned by the site's account, with the
+// group of nginx and the setgid bit, so the socket the app makes belongs to that group; an old socket is removed, or the app could
+// not bind. UMask 0007 gives the socket rw for its owner and group and nothing for the others.
+func listen(s site.Site) []string {
+	if !s.UsesSocket() {
+		return []string{fmt.Sprintf("Environment=PORT=%d", s.NodePort)}
+	}
+	dir, sock := site.AppSocketDir(s.Name), site.AppSocket(s.Name)
+	return []string{
+		"Environment=SOCKET=" + sock,
+		"Environment=PORT=" + sock,
+		fmt.Sprintf("ExecStartPre=+/bin/sh -c 'install -d -m 2750 -o %s -g %s %s && rm -f %s'", s.User, distro.WebUser(), dir, sock),
+		"UMask=0007",
+	}
 }
 
 // Node renders the unit for a node site. memoryMB <= 0 means no memory cap.
@@ -65,13 +86,15 @@ func Node(s site.Site, memoryMB int) (string, error) {
 		"User=" + s.User,
 		"WorkingDirectory=" + s.Root,
 		"Environment=NODE_ENV=production",
-		fmt.Sprintf("Environment=PORT=%d", s.NodePort),
+	}
+	lines = append(lines, listen(s)...)
+	lines = append(lines,
 		fmt.Sprintf("ExecStart=%s/%s/bin/node %s", NodeRoot, s.NodeVersion, s.Entry),
 		"Restart=always",
 		"RestartSec=3",
 		"NoNewPrivileges=yes",
 		"PrivateTmp=yes",
-	}
+	)
 	if memoryMB > 0 {
 		lines = append(lines, fmt.Sprintf("MemoryMax=%dM", memoryMB))
 	}

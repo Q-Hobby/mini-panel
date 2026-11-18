@@ -2,7 +2,37 @@
 
 Mini Panel 的所有重要变更都记录在这里。版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
-本文译自 [CHANGELOG.md](CHANGELOG.md)（越南语）。另有[英文版](CHANGELOG.en.md)。
+本文译自 [CHANGELOG.md](CHANGELOG.md)（英文）。另有[越南语版](CHANGELOG.vi.md)。
+
+## [1.2.0] - 2026-11-18
+
+### 新增
+
+- 可在界面（设置 → 更新）或用 `mpn update -apply` 更新面板。每个发布版本的 `SHA256SUMS` 都用 minisign 签名，面板只接受签名与程序内置密钥相符的版本。签名注释中写有版本号，旧版本无法冒充新版本。正在运行的程序保存为 `/usr/local/bin/mpn.prev`，更新后面板若无响应会自动换回。
+- 异地备份改用 rclone：Google Drive、S3（Cloudflare R2、AWS、Wasabi…）、Backblaze B2、SFTP、WebDAV（Nextcloud、ownCloud）和 FTP/FTPS。只有当面板成功写入、读回并删除一个测试文件后才会保存连接。表单只把固定列表中的字段交给 rclone，因此任何选项都无法执行命令或读取本机文件。
+- 网站经 Cloudflare 代理时可获取访客真实地址（“安全”页，或 `mpn security cloudflare -on -apply`）。nginx 只在来自 Cloudflare 公布网段的连接上采用 `CF-Connecting-IP` 中的地址。默认关闭。
+- 安装 MariaDB 或 MySQL 时会同时安装 phpMyAdmin，“数据库”标签页可以立即打开它。
+- `mpn panel migrate` 会把旧版本安装的机器调整为全新安装时的配置。安装程序和 `mpn update` 会自动运行它。
+
+### 变更
+
+- 面板改为监听 systemd 创建并保持的 Unix 套接字 `/run/mpn-web/web.sock`（`mpn-web.socket`），不再监听 `127.0.0.1:8780`。只有 nginx 和 phpMyAdmin（`mpn-front` 组）能连接。面板重启时套接字仍在，其他程序无法占用它的位置。只有面板监听该套接字时才信任 `X-Real-IP` 中的客户端地址。
+- 新建的 Node.js 和 Python 网站（Debian、Ubuntu）监听 Unix 套接字 `/run/mpn-app/<站点>/app.sock`，不开放 TCP 端口，只有 nginx 能连接。套接字路径在 `SOCKET` 变量中，`PORT` 也是同一路径，因为 Node.js 的 `listen(process.env.PORT)` 接受路径。端口栏留空即使用套接字，填写端口号则像以前一样监听 `127.0.0.1`。已有网站保留原端口。RHEL 系列上应用仍使用端口。
+- 设置页 `/setup` 只能通过带一次性密钥的链接打开。安装程序会输出该链接，在账户创建前 SSH 登录提示也会显示它，`mpn web setup-link` 可再次输出。此前谁先打开 `/setup` 谁就能创建账户。
+- 只有当 `SHASUMS256.txt` 带有 Node.js 发布者的有效签名时才会安装 Node.js。签名用 `gpgv` 对照 mpn 内置的 29 个密钥检查，nodejs.org 或其镜像都无法自行选择密钥。`gpgv` 已加入基础软件包。
+- 备份的 MANIFEST 包含每个文件的 SHA-256，以及用本机专属密钥（`/etc/mpn/backup.key`，权限 0600）生成的 HMAC。从异地存储下载的备份必须由本机签名，且每个文件都要与其校验和一致。
+- 手写的 vHost 不能把日志写到 `/var/log/mpn/sites/<站点>/` 之外；读取文件或影响整台机器的指令（`include`、`load_module`、站点证书目录之外的 `ssl_certificate`、`*_temp_path`、`*_cache_path`、`user`、`pid` 等）会被拒绝。原因是 nginx 在切换到 worker 账户之前以 root 身份打开日志文件。
+- Laravel 使用 `DB_HOST=localhost`（经 Unix 套接字），与 WordPress 和 CodeIgniter 一致。
+- 双因素认证的二维码改由面板自己的代码绘制，替换已停止维护的 go-qrcode 库。
+- 以 root 运行的命令和操作在网站 home 中创建目录时，通过已打开的目录描述符进行，从不跟随符号链接，网站账户无法用符号链接把 root 引向其他文件。
+- 不能创建更明确属于另一网站的数据库名称（例如已有网站 `blog-shop` 时的 `blog_shop`）。
+- 当等待计算密码哈希的登录过多时，面板立即返回 429 而不是排队，避免一轮密码猜测占满 CPU。
+- 公开源代码包含测试，GitHub Actions 在每次推送时运行 gofmt、vet、测试和 govulncheck。
+
+### 升级须知
+
+- 用 1.1.x 制作的备份没有签名，无法再从异地存储下载。保存在本机上的备份仍可照常恢复。
+- 手写 vHost 中使用 `include` 或把日志写到别处的网站，下次应用时会报错，修改该部分后即可恢复。
 
 ## [1.1.1] - 2026-11-14
 
@@ -59,12 +89,13 @@ Mini Panel 的所有重要变更都记录在这里。版本号遵循[语义化�
 
 - 网页邮件升级到 [mpn-mail 1.0.1](https://github.com/marixdev/mpn-mail/releases/tag/v1.0.1)，支持中文并跟随面板的语言。
 - 概览标签页中 PHP 设置的说明现在跟随所选语言显示，以前总是越南语。
-- README 新增英文版（[README.en.md](README.en.md)）和中文版（[README.zh.md](README.zh.md)），并附有配套仓库表（mpn-mail、mpn-nginx-modules）。
+- README 新增英文版和中文版（[README.zh.md](README.zh.md)），并附有配套仓库表（mpn-mail、mpn-nginx-modules）。
 
 ## [1.0.0] - 2026-11-12
 
 首个版本：PHP、Node.js、Python、静态和代理网站；Let's Encrypt SSL；MariaDB/MySQL 与 phpMyAdmin；邮件与 mpn-mail 1.0.0 网页邮件；备份；防火墙、ModSecurity、fail2ban、双因素认证；监控；越南语和英语界面。
 
+[1.2.0]: https://github.com/marixdev/mini-panel/compare/v1.1.1...v1.2.0
 [1.1.1]: https://github.com/marixdev/mini-panel/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/marixdev/mini-panel/compare/v1.0.3...v1.1.0
 [1.0.3]: https://github.com/marixdev/mini-panel/compare/v1.0.2...v1.0.3

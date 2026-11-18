@@ -70,6 +70,16 @@ func dbAdd(args []string) {
 	if !dbadmin.OwnedBy(*name, *siteName) {
 		fail(fmt.Errorf("the name must be %q or start with %q so that it is clearly this site's", dbadmin.BaseName(*siteName), dbadmin.BaseName(*siteName)+"_"))
 	}
+	// "blog_shop" fits the site blog and also the site blog-shop. A name that fits another site better belongs to that site's names.
+	sites, err := st.ListSites()
+	fail(err)
+	var names []string
+	for _, s := range sites {
+		names = append(names, s.Name)
+	}
+	if other := dbadmin.CloserOwner(*name, *siteName, names); other != "" {
+		fail(fmt.Errorf("the name %q is among the names of the site %q; choose another one for %q", *name, other, *siteName))
+	}
 	if !*apply {
 		fmt.Printf("would create database %q and user %q for site %q, with all privileges on that database only and a generated password\n(dry run: add -apply to do it)\n", *name, *name, *siteName)
 		return

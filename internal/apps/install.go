@@ -228,7 +228,10 @@ func wordpressSteps(p Params) (installer.Plan, error) {
 func envBlock(p Params) string {
 	switch p.Recipe.ID {
 	case "laravel":
-		return fmt.Sprintf("\nAPP_ENV=production\nAPP_DEBUG=false\nAPP_URL=%s\nDB_CONNECTION=mysql\nDB_HOST=127.0.0.1\nDB_PORT=3306\nDB_DATABASE=%s\nDB_USERNAME=%s\nDB_PASSWORD=%s\n",
+		// localhost, as WordPress and CodeIgniter already have it: the user is made for 'name'@'localhost', and with localhost
+		// PHP talks to the server over its Unix socket, which needs no TCP port and does not depend on how the server matches
+		// 127.0.0.1 against the host of a user.
+		return fmt.Sprintf("\nAPP_ENV=production\nAPP_DEBUG=false\nAPP_URL=%s\nDB_CONNECTION=mysql\nDB_HOST=localhost\nDB_PORT=3306\nDB_DATABASE=%s\nDB_USERNAME=%s\nDB_PASSWORD=%s\n",
 			p.URL(), p.DBName, p.DBUser, p.DBPass)
 	case "codeigniter":
 		return fmt.Sprintf("\nCI_ENVIRONMENT = production\napp.baseURL = '%s/'\ndatabase.default.hostname = localhost\ndatabase.default.database = %s\ndatabase.default.username = %s\ndatabase.default.password = %s\ndatabase.default.DBDriver = MySQLi\n",

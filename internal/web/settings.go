@@ -7,12 +7,14 @@ import (
 	"html/template"
 	"log"
 	"net/http"
+	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/skip2/go-qrcode"
-
+	"mpn/internal/ctl"
+	"mpn/internal/qr"
 	"mpn/internal/webauth"
 )
 
@@ -140,16 +142,64 @@ type settingsView struct {
 	Error     string
 	Which     string // the card the error belongs to: "password" or "2fa"
 	Min       int
+	Version   string // of the program that runs
+	UpdateLog string // the last update, as mpn update wrote it
 }
+
+// updateLog is what the last "mpn update" wrote; the root helper makes the file and gives it to mpn-web.
+var updateLog = "/var/lib/mpn-web/update.log"
+
+func readUpdateLog() string {
+	b, err := os.ReadFile(updateLog)
+	if err != nil {
+		return ""
+	}
+	if len(b) > 8<<10 {
+		b = b[len(b)-8<<10:]
+	}
+	return strings.TrimSpace(string(b))
+}
+
+// updateCheck asks the helper whether a newer release exists. It is a click away and not done on every page: it asks GitHub.
+func (s *Server) updateCheck(w http.ResponseWriter, r *http.Request, ss webauth.Session) {
+	T := translatorForWriter(w)
+	res := s.runText(T, T("set.up.check.title"), ctl.Request{Op: "panel.updatecheck"})
+	res.Back = "/settings"
+	s.finish(w, r, res)
+}
+
+// updateStart starts "mpn update" in the background. The helper checks the version again, and mpn update checks the signature of
+// the release against the key built into the program; nothing the page sends can choose a key or a place to download from.
+func (s *Server) updateStart(w http.ResponseWriter, r *http.Request, ss webauth.Session) {
+	T := translatorForWriter(w)
+	v := strings.TrimSpace(r.PostFormValue("version"))
+	if v != "" && !versionText.MatchString(v) {
+		s.refuseTo(w, ss, "/settings", T("err.nothing"), T("set.up.err.version"))
+		return
+	}
+	res := s.runText(T, T("set.up.start.title"), ctl.Request{Op: "panel.update", Version: v})
+	res.Back = "/settings"
+	s.finish(w, r, res)
+}
+
+var versionText = regexp.MustCompile(`^\d{1,4}\.\d{1,4}\.\d{1,4}$`)
 
 // qrSVG draws text as a QR code. It is an inline SVG because the page's policy allows no images from data: addresses.
 func qrSVG(text, label string) (template.HTML, error) {
-	q, err := qrcode.New(text, qrcode.Medium)
+	sym, err := qr.Encode(text)
 	if err != nil {
 		return "", err
 	}
-	bm := q.Bitmap() // includes the quiet border scanners need
-	n := len(bm)
+	// The light border of four modules that scanners need.
+	const quiet = 4
+	n := len(sym) + 2*quiet
+	bm := make([][]bool, n)
+	for y := range bm {
+		bm[y] = make([]bool, n)
+		if y >= quiet && y < n-quiet {
+			copy(bm[y][quiet:], sym[y-quiet])
+		}
+	}
 	var b strings.Builder
 	fmt.Fprintf(&b, `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %d %d" width="192" height="192" class="qr" shape-rendering="crispEdges" role="img" aria-label="%s"><rect width="%d" height="%d" fill="#fff"/><path fill="#000" d="`,
 		n, n, template.HTMLEscapeString(label), n, n)
@@ -176,6 +226,8 @@ func (s *Server) settingsPages(mux *http.ServeMux) {
 	mux.HandleFunc("POST /settings/password", s.auth(s.changePassword))
 	mux.HandleFunc("POST /settings/2fa/enable", s.auth(s.twoFAEnable))
 	mux.HandleFunc("POST /settings/2fa/disable", s.auth(s.twoFADisable))
+	mux.HandleFunc("POST /settings/update/check", s.auth(s.updateCheck))
+	mux.HandleFunc("POST /settings/update", s.auth(s.updateStart))
 	mux.HandleFunc("POST /login/2fa", s.loginSecondStep)
 }
 
@@ -189,6 +241,8 @@ func (s *Server) sessionToken(r *http.Request) string {
 // showSettings draws the page. The account is read again each time, so what the page says is what is stored.
 func (s *Server) showSettings(w http.ResponseWriter, r *http.Request, ss webauth.Session, status int, v settingsView, notice *result) {
 	v.Min = webauth.MinPasswordLen
+	v.Version = Version
+	v.UpdateLog = readUpdateLog()
 	if acct, err := s.Account(); err == nil {
 		v.TOTPOn = acct.TOTP != ""
 	}
@@ -228,6 +282,8 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request, ss webau
 	if s.tooMany(w, r, ss, key, "password") {
 		return
 	}
+	s.accountMu.Lock()
+	defer s.accountMu.Unlock()
 	acct, err := s.Account()
 	if err != nil || s.SaveAccount == nil {
 		fail(http.StatusServiceUnavailable, T("set.unavailable"))
@@ -236,7 +292,7 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request, ss webau
 	cur, pw, again := r.PostFormValue("current"), r.PostFormValue("new"), r.PostFormValue("again")
 	if len(cur) > 256 || !acct.Check(acct.User, cur) {
 		s.Throttle.Fail(key)
-		log.Printf("login failed from %s", s.clientKey(r))
+		log.Printf("login failed from %s", s.clientAddr(r))
 		fail(http.StatusUnauthorized, T("set.pw.wrong"))
 		return
 	}
@@ -303,6 +359,8 @@ func (s *Server) twoFAEnable(w http.ResponseWriter, r *http.Request, ss webauth.
 	if s.tooMany(w, r, ss, key, "2fa") {
 		return
 	}
+	s.accountMu.Lock()
+	defer s.accountMu.Unlock()
 	acct, err := s.Account()
 	secret, ok := s.twofa.getSetup(s.sessionToken(r))
 	if err != nil || s.SaveAccount == nil || !ok {
@@ -312,7 +370,7 @@ func (s *Server) twoFAEnable(w http.ResponseWriter, r *http.Request, ss webauth.
 	step, good := webauth.VerifyTOTP(secret, r.PostFormValue("code"), time.Now(), 0)
 	if !good {
 		s.Throttle.Fail(key)
-		log.Printf("login failed from %s", s.clientKey(r))
+		log.Printf("login failed from %s", s.clientAddr(r))
 		s.showSetup(w, r, ss, http.StatusUnauthorized, acct.User, secret, T("set.2fa.wrong"))
 		return
 	}
@@ -334,6 +392,8 @@ func (s *Server) twoFADisable(w http.ResponseWriter, r *http.Request, ss webauth
 	if s.tooMany(w, r, ss, key, "2fa") {
 		return
 	}
+	s.accountMu.Lock()
+	defer s.accountMu.Unlock()
 	acct, err := s.Account()
 	if err != nil || s.SaveAccount == nil || acct.TOTP == "" {
 		http.Redirect(w, r, "/settings", http.StatusSeeOther)
@@ -343,7 +403,7 @@ func (s *Server) twoFADisable(w http.ResponseWriter, r *http.Request, ss webauth
 	_, codeOK := webauth.VerifyTOTP(acct.TOTP, r.PostFormValue("code"), time.Now(), acct.TOTPStep)
 	if len(pw) > 256 || !acct.Check(acct.User, pw) || !codeOK {
 		s.Throttle.Fail(key)
-		log.Printf("login failed from %s", s.clientKey(r))
+		log.Printf("login failed from %s", s.clientAddr(r))
 		s.showSettings(w, r, ss, http.StatusUnauthorized, settingsView{Error: T("set.2fa.off.wrong"), Which: "2fa"}, nil)
 		return
 	}
@@ -371,11 +431,17 @@ func (s *Server) loginSecondStep(w http.ResponseWriter, r *http.Request) {
 		expired()
 		return
 	}
-	if d := s.Throttle.Wait(key); d > 0 {
+	release, d := s.Throttle.Admit(key)
+	if d > 0 {
 		w.Header().Set("Retry-After", fmt.Sprint(int(d.Seconds())+1))
 		s.render(w, http.StatusTooManyRequests, view{Page: "login", Need2FA: true, Pending: tok, Error: T("login.locked", int(d.Seconds())+1)})
 		return
 	}
+	defer release()
+	// Reading the last used step, checking the code against it and saving the new step are one step: two sign-ins that send the same
+	// code at the same moment must not both pass.
+	s.accountMu.Lock()
+	defer s.accountMu.Unlock()
 	acct, err := s.Account()
 	if err != nil || acct.User != p.user || acct.TOTP == "" {
 		s.twofa.doneLogin(tok)
@@ -385,7 +451,7 @@ func (s *Server) loginSecondStep(w http.ResponseWriter, r *http.Request) {
 	step, good := webauth.VerifyTOTP(acct.TOTP, code, time.Now(), acct.TOTPStep)
 	if !good {
 		s.Throttle.Fail(key)
-		log.Printf("login failed from %s", key) // read by the mpn-panel jail of fail2ban
+		log.Printf("login failed from %s", s.clientAddr(r)) // read by the mpn-panel jail of fail2ban
 		if !s.twofa.failLogin(tok) {
 			expired()
 			return
@@ -393,11 +459,16 @@ func (s *Server) loginSecondStep(w http.ResponseWriter, r *http.Request) {
 		s.render(w, http.StatusUnauthorized, view{Page: "login", Need2FA: true, Pending: tok, Error: T("login.2fa.wrong")})
 		return
 	}
+	// A code that cannot be marked as used could be used again, so then there is no session.
 	acct.TOTPStep = step
-	if s.SaveAccount != nil {
-		if err := s.SaveAccount(acct); err != nil {
-			log.Printf("the used code could not be remembered: %v", err)
-		}
+	if s.SaveAccount == nil {
+		s.render(w, http.StatusServiceUnavailable, view{Page: "login", Error: T("set.unavailable")})
+		return
+	}
+	if err := s.SaveAccount(acct); err != nil {
+		log.Printf("the used code could not be remembered, sign-in refused: %v", err)
+		s.render(w, http.StatusServiceUnavailable, view{Page: "login", Need2FA: true, Pending: tok, Error: T("set.save")})
+		return
 	}
 	s.twofa.doneLogin(tok)
 	s.Throttle.Reset(key)

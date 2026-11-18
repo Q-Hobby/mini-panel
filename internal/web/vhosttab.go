@@ -60,7 +60,7 @@ func (s *Server) saveVhost(w http.ResponseWriter, r *http.Request, ss webauth.Se
 	T := translatorForWriter(w)
 	s.vhostAction(w, r, ss, "act.vhost.save", func(row siteRow) (ctl.Request, string) {
 		text := normalizeNewlines(r.PostFormValue("vhost"))
-		if err := vhost.CheckCustom(text, row.TLS); err != nil {
+		if err := vhost.CheckCustomFor(text, row.Name, row.TLS); err != nil {
 			return ctl.Request{}, T("vh.err.check", err.Error())
 		}
 		return ctl.Request{Op: "site.vhostset", Site: row.Name, Vhost: text}, ""

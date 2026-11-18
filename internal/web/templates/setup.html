@@ -13,6 +13,11 @@
       <span>{{.Error}}</span>
     </div>
     {{end}}
+    {{if .SetupLocked}}
+    <p class="text-sm">{{T "setup.locked"}}</p>
+    <pre class="mt-3 overflow-x-auto rounded-md bg-muted px-3 py-2 text-xs"><code>mpn web setup-link</code></pre>
+    <p class="hint mt-3">{{T "setup.locked.hint"}}</p>
+    {{else}}
     <form method="post" action="/setup" class="space-y-4">
       <div>
         <label class="label" for="user">{{T "auth.username"}}</label>
@@ -36,5 +41,6 @@
       </div>
       <button class="btn-primary w-full py-2.5" type="submit">{{T "setup.submit"}}</button>
     </form>
+    {{end}}
   </div>
 </div>{{end}}

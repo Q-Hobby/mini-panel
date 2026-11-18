@@ -122,7 +122,7 @@ func init() {
 		"fm.done.move":        "Moved %d files and %d directories.",
 		"fm.done.paste.fail":  "Could not paste.",
 		"fm.paste.partial":    "%d files and %d directories were done before the error.",
-		"fm.err.inside":       "A directory cannot be pasted into itself or into one of its subdirectories.",	} {
+		"fm.err.inside":       "A directory cannot be pasted into itself or into one of its subdirectories."} {
 		en[k] = v
 	}
 }

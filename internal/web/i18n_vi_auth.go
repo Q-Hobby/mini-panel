@@ -22,6 +22,8 @@ func init() {
 		"setup.badge":              "THIẾT LẬP ĐẦU TIÊN",
 		"login.code.heading":       "Nhập mã xác thực.",
 		"setup.password.confirm":   "Nhập lại mật khẩu",
+		"setup.locked":             "Hãy mở trang này bằng liên kết thiết lập được in ở cuối bản cài đặt. Nếu không còn liên kết đó, đăng nhập SSH vào máy chủ và chạy:",
+		"setup.locked.hint":        "Liên kết chỉ dùng được cho tới khi tài khoản đầu tiên được tạo.",
 		"notfound.home":            "Về trang chính",
 		"auth.username":            "Tên đăng nhập",
 		"auth.password.show.label": "Hiện mật khẩu",

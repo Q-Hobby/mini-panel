@@ -5,18 +5,58 @@ import (
 	"fmt"
 	"strings"
 
+	"mpn/internal/distro"
 	"mpn/internal/security"
 	"mpn/internal/site"
 )
 
-// PanelBackendPort is where the web panel listens on this machine. It is never reachable from outside: nginx takes the
-// public port, speaks TLS, and passes requests on.
+// PanelBackendPort is where the web panel listened before 1.2.0. Port 8780 of the loopback address could be taken by the program of any
+// website while the panel was restarting, and any account of the machine could send it a forged client address. It is kept only so that
+// a site may not take it while a machine is being moved to the socket, and so that the move can find the old configuration.
 const PanelBackendPort = 8780
+
+// The web panel listens on a Unix socket that systemd makes and keeps (mpn-web.socket), so it exists while the panel restarts and no
+// program can take its place. Only root and the members of FrontGroup may connect: nginx and the pool of the database browser.
+const (
+	PanelSocketDir = "/run/mpn-web"
+	PanelSocket    = PanelSocketDir + "/web.sock"
+	// FrontGroup is the group of the accounts that may talk to the panel: the web server's account and mpn-pma.
+	FrontGroup = "mpn-front"
+)
 
 const (
 	webMark   = "mpn web panel"
 	panelCert = "/etc/mpn/certs/_panel"
 )
+
+// panelSocketUnit is the socket of the panel. The socket is open only to root and the group. Its folder belongs to root:root (systemd
+// makes it so, whatever SocketGroup says) and may only be written by root, so no other program can put a socket in its place; others
+// may pass through it (0755), which they need to reach a socket they are allowed to open, and which opens nothing by itself.
+const panelSocketUnit = `[Unit]
+Description=mpn web panel socket
+
+[Socket]
+ListenStream=` + PanelSocket + `
+SocketUser=root
+SocketGroup=` + FrontGroup + `
+SocketMode=0660
+DirectoryMode=0755
+RemoveOnStop=yes
+
+[Install]
+WantedBy=sockets.target
+`
+
+// frontGroupScript makes the group of the accounts that may connect to the panel's socket and puts the web server's account in it.
+// The account of the database browser joins it when the browser is installed (pmaUserScript). nginx must be restarted, not
+// reloaded, to see a new group: the master forks workers with the groups it started with.
+func frontGroupScript(webUser string) string {
+	return `getent group ` + FrontGroup + ` >/dev/null || groupadd --system ` + FrontGroup + `
+id -nG ` + webUser + ` | tr ' ' '\n' | grep -qx ` + FrontGroup + ` || { usermod -aG ` + FrontGroup + ` ` + webUser + ` && touch /run/mpn-nginx-restart; }`
+}
+
+// nginxRestartIfNeeded restarts nginx once when frontGroupScript gave its account a new group.
+const nginxRestartIfNeeded = `[ ! -e /run/mpn-nginx-restart ] || { systemctl restart nginx && rm -f /run/mpn-nginx-restart; }`
 
 // PanelCertScript makes the self-signed certificate of the panel when none is there; mpn panel ssl-off uses it to go back.
 const PanelCertScript = panelCertScript
@@ -51,11 +91,13 @@ func webService(hosts []string, pmaPort int) string {
 Description=mpn web panel
 After=mpn-root.service
 Wants=mpn-root.service
+Requires=mpn-web.socket
+After=mpn-web.socket
 
 [Service]
 User=mpn-web
 Group=mpn-web
-ExecStart=%s web -listen 127.0.0.1:%d -secure -trust-proxy%s
+ExecStart=%s web -listen systemd -secure -trust-proxy%s
 Restart=on-failure
 RestartSec=2
 NoNewPrivileges=yes
@@ -77,7 +119,7 @@ MemoryMax=96M
 
 [Install]
 WantedBy=multi-user.target
-`, mpnBinary, PanelBackendPort, h.String())
+`, mpnBinary, h.String())
 }
 
 // panelNginx makes nginx answer the public port over TLS and hand requests to the panel. The Host header keeps its port
@@ -93,44 +135,70 @@ func panelNginx(port int) string {
     gzip on;
     gzip_types text/css text/javascript application/javascript;
     # The panel is not a website: the rules of the web application firewall (once installed) would block saving code in the editor.
-    %[6]s
-    # What the database browser and nginx ask of the panel over the loopback address is not for anybody on the Internet.
+    %[4]s
+    %[3]s
+}
+`, port, panelCert, panelLocations(), security.OffInclude)
+}
+
+// panelLocations are the locations every server block that serves the panel has, on its port and on its name.
+func panelLocations() string {
+	return fmt.Sprintf(`# The setup link carries a one-time key in its query; it is not written to the log.
+    location = /setup {
+        access_log off;
+        %[2]s
+    }
+    # What the database browser and nginx ask of the panel on this machine is not for anybody on the Internet.
     location ^~ /_pma/ { return 404; }
     # An upload is passed on as it arrives instead of being stored by nginx first, and may be large; the panel stops it at its own limit.
     location ~ ^/sites/[^/]+/files/upload$ {
-        client_max_body_size %[4]dm;
+        client_max_body_size %[1]dm;
         proxy_request_buffering off;
         client_body_timeout 2h;
         proxy_read_timeout 2h;
         proxy_send_timeout 2h;
-        %[5]s
+        %[2]s
     }
     # The text of the code editor can be a few megabytes.
     location ~ ^/sites/[^/]+/files/save$ {
         client_max_body_size 8m;
-        %[5]s
+        %[2]s
     }
     location / {
-        %[5]s
+        %[2]s
         proxy_read_timeout 1500s;
         proxy_send_timeout 60s;
-    }
+    }`, UploadLimitMB, panelProxy())
 }
-`, port, panelCert, PanelBackendPort, UploadLimitMB, panelProxy(PanelBackendPort), security.OffInclude)
+
+// panelAuthLocation is nginx's question to the panel whether a visitor is signed in, which the database browser and the web mail ask
+// before every request. The answer is 204 or 401 from the cookie the panel sees.
+func panelAuthLocation() string {
+	return `location = /_mpn_auth {
+        internal;
+        proxy_pass ` + PanelUpstream + `/_pma/auth;
+        proxy_pass_request_body off;
+        proxy_set_header Content-Length "";
+        proxy_set_header Host localhost;
+        proxy_set_header Cookie $http_cookie;
+    }`
 }
 
 // UploadLimitMB is the largest upload nginx lets through to the panel (1 GiB, the panel's own default limit).
 const UploadLimitMB = 1100
 
+// PanelUpstream is how nginx reaches the panel.
+const PanelUpstream = "http://unix:" + PanelSocket + ":"
+
 // panelProxy is what every location that hands a request to the panel has in common.
-func panelProxy(backend int) string {
-	return fmt.Sprintf(`proxy_pass http://127.0.0.1:%d;
+func panelProxy() string {
+	return `proxy_pass ` + PanelUpstream + `;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection $connection_upgrade;
         proxy_set_header Host $http_host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-Proto https;`, backend)
+        proxy_set_header X-Forwarded-Proto https;`
 }
 
 // sshdExemptScript keeps sshd from penalising this machine's own address. OpenSSH 9.8 and later slows down, then drops,
@@ -172,17 +240,23 @@ func panelStep(o Options) (Step, error) {
 	acts := []Action{
 		Run("sh", "-c", webUserScript),
 		Run("install", "-d", "-o", "mpn-web", "-g", "mpn-web", "-m", "0750", "/var/lib/mpn-web"),
+		Run("sh", "-c", frontGroupScript(distro.WebUser())),
 		WriteFile("/etc/systemd/system/mpn-root.service", rootService, 0o644),
+		WriteFile("/etc/systemd/system/mpn-web.socket", panelSocketUnit, 0o644),
 		WriteFile("/etc/systemd/system/mpn-web.service", webService(o.PanelHosts, pmaPortOf(o, port)), 0o644),
 		Run("sh", "-c", panelCertScript),
 		Run("sh", "-c", sshdExemptScript),
+		// The socket first: nginx is pointed at it below, and it must be there when nginx starts to use it.
+		Run("systemctl", "daemon-reload"),
+		Run("systemctl", "enable", "mpn-root", "mpn-web.socket", "mpn-web"),
+		Run("systemctl", "restart", "mpn-root"),
+		// systemd sets the mode of the folder only when it makes it, so a folder left from an earlier socket is removed first.
+		Run("sh", "-c", "systemctl stop mpn-web mpn-web.socket; rmdir "+PanelSocketDir+" 2>/dev/null; systemctl start mpn-web.socket"),
+		Run("systemctl", "restart", "mpn-web"),
 		WriteFile("/etc/nginx/conf.d/01-mpn-panel.conf", panelNginx(port), 0o644),
 		Run("nginx", "-t"),
+		Run("sh", "-c", nginxRestartIfNeeded),
 		ReloadNginx(),
-		Run("systemctl", "daemon-reload"),
-		Run("systemctl", "enable", "mpn-root", "mpn-web"),
-		Run("systemctl", "restart", "mpn-root"),
-		Run("systemctl", "restart", "mpn-web"),
 	}
 	acts = append(acts, motdActions()...)
 	if o.PMA { // the group and the key must exist before the panel starts with the browser switched on

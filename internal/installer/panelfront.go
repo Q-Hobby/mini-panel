@@ -1,7 +1,6 @@
 package installer
 
 import (
-	"fmt"
 	"strings"
 
 	"mpn/internal/security"
@@ -32,15 +31,8 @@ func pmaDomainLocations() string {
             fastcgi_pass unix:/run/php/mpn-pma.sock;
             fastcgi_read_timeout 300s;`
 	var b strings.Builder
-	b.WriteString(`    # Is this visitor signed in to the panel? The panel answers 204 or 401 from the cookie it sees.
-    location = /_mpn_auth {
-        internal;
-        proxy_pass http://127.0.0.1:` + fmt.Sprint(PanelBackendPort) + `/_pma/auth;
-        proxy_pass_request_body off;
-        proxy_set_header Content-Length "";
-        proxy_set_header Host localhost;
-        proxy_set_header Cookie $http_cookie;
-    }
+	b.WriteString(`    # Is this visitor signed in to the panel?
+    ` + panelAuthLocation() + `
     location @mpn_login { return 302 https://$host/login; }
 
     # phpMyAdmin under /pma/.
@@ -81,34 +73,12 @@ func PanelDomainNginx(domain string, pma, webmail bool) string {
 	b.WriteString("    ssl_certificate " + panelCert + "/fullchain.pem;\n    ssl_certificate_key " + panelCert + "/privkey.pem;\n")
 	b.WriteString("    client_max_body_size 1m;\n    gzip on;\n    gzip_types text/css text/javascript application/javascript;\n")
 	b.WriteString("    " + security.OffInclude + "\n")
-	b.WriteString("    # What the database browser and nginx ask of the panel over the loopback address is not for anybody on the Internet.\n")
-	b.WriteString("    location ^~ /_pma/ { return 404; }\n")
 	if pma {
 		b.WriteString(pmaDomainLocations())
 	}
 	if webmail {
 		b.WriteString(vhost.WebmailLocations())
 	}
-	b.WriteString(fmt.Sprintf(`    # An upload is passed on as it arrives instead of being stored by nginx first, and may be large; the panel stops it at its own limit.
-    location ~ ^/sites/[^/]+/files/upload$ {
-        client_max_body_size %[1]dm;
-        proxy_request_buffering off;
-        client_body_timeout 2h;
-        proxy_read_timeout 2h;
-        proxy_send_timeout 2h;
-        %[2]s
-    }
-    # The text of the code editor can be a few megabytes.
-    location ~ ^/sites/[^/]+/files/save$ {
-        client_max_body_size 8m;
-        %[2]s
-    }
-    location / {
-        %[2]s
-        proxy_read_timeout 1500s;
-        proxy_send_timeout 60s;
-    }
-}
-`, UploadLimitMB, panelProxy(PanelBackendPort)))
+	b.WriteString("    " + panelLocations() + "\n}\n")
 	return b.String()
 }

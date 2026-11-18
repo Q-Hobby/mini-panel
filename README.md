@@ -3,87 +3,90 @@
 <h1 align="center">Mini Panel</h1>
 
 <p align="center">
-Bảng điều khiển hosting nhẹ cho VPS nhỏ, viết bằng Go. Một tệp chạy duy nhất, chạy tốt trên máy 1 vCPU / 1 GB RAM.<br>
-<a href="https://mpanel.biz">mpanel.biz</a> · <a href="https://mpanel.biz/install/">Cài đặt</a> · <a href="https://github.com/marixdev/mini-panel/releases">Bản phát hành</a>
+A lightweight hosting control panel for small VPS, written in Go. One binary, runs well on 1 vCPU / 1 GB RAM.<br>
+<a href="https://mpanel.biz">mpanel.biz</a> · <a href="https://mpanel.biz/install/">Install</a> · <a href="https://github.com/marixdev/mini-panel/releases">Releases</a>
 </p>
 
-<p align="center"><b>Tiếng Việt</b> · <a href="README.en.md">English</a> · <a href="README.zh.md">简体中文</a></p>
+<p align="center"><b>English</b> · <a href="README.vi.md">Tiếng Việt</a> · <a href="README.zh.md">简体中文</a></p>
 
 ---
 
-## Cài đặt
+## Install
 
-Đăng nhập VPS bằng root rồi chạy:
+Log in to the VPS as root and run:
 
 ```sh
 curl -fsSL https://mpanel.biz/install.sh | sh
 ```
 
-Bộ cài kiểm tra hệ điều hành, tải `mpn` từ bản phát hành mới nhất trên GitHub và so mã SHA-256 với `SHA256SUMS`. Sau đó nó cài nginx 1.28.3 cùng mô-đun pagespeed, rồi cài panel ở cổng 2610 với chứng chỉ tự ký. Mô-đun ModSecurity chỉ được cài khi bạn bật tường lửa ứng dụng web trong tab Bảo mật. Bộ cài **không** cài PHP, Node.js hay cơ sở dữ liệu: bạn chọn những thứ đó sau, trong trang Dịch vụ của panel.
+The installer checks the operating system, downloads `mpn` from the latest GitHub release and compares its SHA-256 with `SHA256SUMS`. It then installs nginx 1.28.3 with the PageSpeed module, and the panel on port 2610 with a self-signed certificate. The ModSecurity module is installed only when you turn on the web application firewall in the Security tab. The installer does **not** install PHP, Node.js or a database: you choose those later on the panel's Services page.
 
-Cài xong, mở địa chỉ được in ra (`https://<IP>:2610/setup`) để tạo tài khoản quản trị. Hãy làm ngay, vì khi chưa có tài khoản, ai mở `/setup` trước sẽ là người tạo.
+When it finishes, open the setup link it prints (`https://<IP>:2610/setup?k=…`) to create the administrator account. The link carries a one-time key and works until the account exists; `mpn web setup-link` prints it again.
 
-Tùy chọn: `MPN_VERSION=1.0.2` để cài một bản cố định, `MPN_PANEL_PORT=2610` để đổi cổng panel.
+Options: `MPN_VERSION=1.0.2` installs a fixed version, `MPN_PANEL_PORT=2610` changes the panel port.
 
-**Hệ điều hành:** Ubuntu 22.04, 24.04, 26.04, Debian 12, 13, và AlmaLinux, Rocky Linux, CentOS Stream 9, 10; kiến trúc x86_64 hoặc arm64 (aarch64). Trên họ RHEL, SELinux vẫn bật và firewalld bị tắt (panel quản lý tường lửa bằng nftables).
+**Operating systems:** Ubuntu 22.04, 24.04, 26.04, Debian 12, 13, and AlmaLinux, Rocky Linux, CentOS Stream 9, 10, on x86_64 or arm64 (aarch64). On the RHEL family SELinux stays on and firewalld is turned off (the panel manages the firewall with nftables).
 
-## Tính năng
+## Features
 
-- **Website:** PHP 7.0 đến 8.5 (mỗi site một pool PHP-FPM), Node.js 18 đến 24, Python, site tĩnh và proxy ngược. Mỗi site có tài khoản hệ thống riêng, tên miền, SSH/SFTP, trình quản lý tệp, terminal trên web, cron, nhật ký và vHost tự sửa (kiểm bằng `nginx -t` trước khi nạp).
-- **Cài ứng dụng:** WordPress, Laravel, CodeIgniter 4, CakePHP, Yii 2, kèm trang quản lý WordPress (cập nhật, plugin, giao diện).
-- **SSL:** Let's Encrypt có kiểm tra DNS trước và tự gia hạn, chứng chỉ riêng, tạo CSR. Panel cũng có chứng chỉ riêng cho chính nó.
-- **Cơ sở dữ liệu:** MariaDB hoặc MySQL, mỗi cơ sở dữ liệu một người dùng, phpMyAdmin đăng nhập bằng tài khoản tạm.
-- **Email** (mặc định tắt): Postfix, Dovecot, OpenDKIM. Tên miền, hộp thư và bí danh quản lý trong từng website, hiện sẵn bản ghi MX/SPF/DKIM/DMARC và có thể thêm thẳng vào Cloudflare. Web mail [mpn-mail](https://github.com/marixdev/mpn-mail) tự thoát khi không ai dùng.
-- **Sao lưu:** hằng đêm, giữ 7 bản, khôi phục từ giao diện, đồng bộ lên Google Drive.
-- **Bảo mật:** tường lửa nftables không khóa nhầm SSH và cổng panel, ModSecurity với OWASP CRS, fail2ban, xác thực hai bước (TOTP).
-- **Giám sát:** CPU, bộ nhớ, tải, mạng, ổ đĩa và trạng thái dịch vụ trong 24 giờ.
-- **Giao diện** tiếng Việt, tiếng Anh và tiếng Trung giản thể, sáng và tối.
+- **Websites:** PHP 7.0 to 8.5 (one PHP-FPM pool per site), Node.js 18 to 24, Python, static sites and reverse proxies. Each site has its own system account, domain, SSH/SFTP, file manager, web terminal, cron, logs and an editable vHost (checked with `nginx -t` before it is loaded).
+- **App installer:** WordPress, Laravel, CodeIgniter 4, CakePHP, Yii 2, plus a WordPress manager (updates, plugins, themes).
+- **SSL:** Let's Encrypt with a DNS check first and automatic renewal, custom certificates, CSR generation. The panel has its own certificate as well.
+- **Databases:** MariaDB or MySQL, one user per database, phpMyAdmin that signs in with a temporary account.
+- **Email** (off by default): Postfix, Dovecot, OpenDKIM. Domains, mailboxes and aliases are managed inside each website, with ready MX/SPF/DKIM/DMARC records that can be added straight to Cloudflare. The [mpn-mail](https://github.com/marixdev/mpn-mail) web mail exits when nobody uses it.
+- **Backups:** nightly, 7 kept, restore from the interface, copied off-site through rclone to Google Drive, S3 (Cloudflare R2, AWS, Wasabi), Backblaze B2, SFTP, WebDAV or FTP. Each MANIFEST is signed with the machine's own key.
+- **Security:** an nftables firewall that cannot lock out SSH or the panel port, ModSecurity with OWASP CRS, fail2ban, two-factor sign-in (TOTP), visitors' real addresses behind Cloudflare.
+- **Monitoring:** CPU, memory, load, network, disk and service status over 24 hours.
+- **Updates:** from the Settings page or `mpn update -apply`; a release is installed only when its signature matches the key built into the program.
+- **Interface** in English, Vietnamese and Simplified Chinese, light and dark.
 
-## Cách hoạt động
+## How it works
 
-- `mpn web` phục vụ giao diện bằng một người dùng không có quyền root, chỉ nghe `127.0.0.1` và đứng sau nginx có TLS.
-- `mpn root` là trình hỗ trợ chạy bằng root, nghe trên socket Unix và chỉ nhận một danh sách thao tác cố định. Mỗi giá trị được kiểm tra lại trước khi thành đối số dòng lệnh, không qua shell.
-- Mật khẩu, khóa riêng và chứng chỉ đi qua đầu vào chuẩn, không nằm trong đối số, log hay cơ sở dữ liệu.
-- Mọi thay đổi trên máy là một kế hoạch gồm nhiều bước, mặc định chỉ xem thử và chạy thật khi có `-apply`. Nếu `nginx -t` hoặc một bước lỗi, tệp cũ được khôi phục.
-- nginx được ghim ở 1.28.3 trên mọi hệ điều hành (từ nginx.org, khoá bằng `apt-mark hold` hoặc `dnf versionlock`), nên `apt upgrade` hay `dnf upgrade` không làm hỏng các mô-đun đã build cho bản đó ([mpn-packages](https://github.com/marixdev/mpn-packages)). Mọi tệp tải về đều được so với mã SHA-256 ghi sẵn trong mã nguồn.
-- Dữ liệu của panel nằm trong SQLite, `/var/lib/mpn/mpn.db` quyền 0600.
+- `mpn web` serves the interface as a user without root rights. It listens on the Unix socket `/run/mpn-web/web.sock`, which systemd keeps and only nginx and phpMyAdmin may open, and sits behind nginx with TLS.
+- Node.js and Python apps listen on a Unix socket of their own (`/run/mpn-app/<site>/app.sock`, path in `SOCKET` and `PORT`) that only nginx can reach. On the RHEL family they listen on a port of `127.0.0.1`.
+- `mpn root` is a helper running as root. It listens on a Unix socket and accepts only a fixed list of operations. Every value is checked again before it becomes a command-line argument, and no shell is involved.
+- Passwords, private keys and certificates travel over standard input, never in arguments, logs or the database.
+- Every change to the machine is a plan of steps. By default it is only shown, and it runs with `-apply`. If `nginx -t` or a step fails, the old files are restored.
+- nginx is pinned at 1.28.3 on every operating system (from nginx.org, held with `apt-mark hold` or `dnf versionlock`), so `apt upgrade` or `dnf upgrade` does not break the modules built for that version ([mpn-packages](https://github.com/marixdev/mpn-packages)). Every download is compared with a SHA-256 written in the source, and Node.js releases must also carry a valid signature of a Node.js releaser.
+- The panel's data is in SQLite, `/var/lib/mpn/mpn.db`, mode 0600.
 
-## Các repo đi kèm
+## Companion repositories
 
-Panel tải các thành phần sau từ bản phát hành của chúng và so mã SHA-256 đã ghim trong mã nguồn:
+The panel downloads these components from their releases and checks the SHA-256 pinned in the source:
 
-| Repo | Panel dùng để | Ghim ở |
+| Repository | Used by the panel for | Pinned in |
 |---|---|---|
-| [marixdev/mpn-mail](https://github.com/marixdev/mpn-mail) | Web mail ở `/webmail/` (bản tùy biến của lilmail) | `internal/mail/webmail.go` |
-| [marixdev/mpn-packages](https://github.com/marixdev/mpn-packages) | Mô-đun PageSpeed và ModSecurity build cho nginx 1.28.3; PHP 7.0 đến 7.3 và OWASP CRS cho AlmaLinux, Rocky Linux, CentOS Stream | `internal/installer/nginx.go`, `internal/installer/el.go` |
+| [marixdev/mpn-mail](https://github.com/marixdev/mpn-mail) | Web mail at `/webmail/` (a customised lilmail) | `internal/mail/webmail.go` |
+| [marixdev/mpn-packages](https://github.com/marixdev/mpn-packages) | PageSpeed and ModSecurity modules built for nginx 1.28.3; PHP 7.0 to 7.3 and the OWASP CRS for AlmaLinux, Rocky Linux, CentOS Stream | `internal/installer/nginx.go`, `internal/installer/el.go` |
 
-## Dòng lệnh
+## Command line
 
 ```
-mpn version | tune | plan | site | db | backup | cron | firewall | security | panel | cloud | app | wp | mail | services | root | web
+mpn version | update | tune | plan | site | db | backup | cron | firewall | security | panel | cloud | app | wp | mail | services | root | web
 ```
 
-Thêm `-h` sau lệnh con để xem các cờ. Lệnh thay đổi máy mặc định chỉ xem thử và cần `-apply`. Quên mật khẩu: `mpn web passwd`. Mất ứng dụng xác thực: `mpn web 2fa-off`.
+Add `-h` after a subcommand to see its flags. Commands that change the machine only show what they would do unless given `-apply`. Forgot the password: `mpn web passwd`. Lost the authenticator app: `mpn web 2fa-off`.
 
-| Thứ | Nơi |
+| What | Where |
 |---|---|
-| Tệp chạy | `/usr/local/bin/mpn` |
-| Cơ sở dữ liệu của panel | `/var/lib/mpn/mpn.db` |
-| Chứng chỉ của từng site | `/etc/mpn/certs/<site>/` |
-| Log nginx của từng site | `/var/log/mpn/sites/<site>/` |
-| Bản sao lưu | `/var/backups/mpn/<site>/<thời điểm>/` |
-| Dịch vụ | `mpn-root`, `mpn-web`, `mpn-renew.timer`, `mpn-backup.timer` |
+| Binary | `/usr/local/bin/mpn` |
+| Panel database | `/var/lib/mpn/mpn.db` |
+| Certificates of each site | `/etc/mpn/certs/<site>/` |
+| nginx logs of each site | `/var/log/mpn/sites/<site>/` |
+| Backups | `/var/backups/mpn/<site>/<time>/` |
+| Backup signing key | `/etc/mpn/backup.key` |
+| Services | `mpn-root`, `mpn-web.socket`, `mpn-web`, `mpn-renew.timer`, `mpn-backup.timer` |
 
-## Build từ mã nguồn
+## Building from source
 
-Cần Go 1.27 trở lên:
+Requires Go 1.27 or newer:
 
 ```sh
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o mpn ./cmd/mpn
 ```
 
-Bản phát hành được build bằng GitHub Actions khi đẩy tag `v*` ([release.yml](.github/workflows/release.yml)). Sau khi sửa template trong `internal/web`, dựng lại CSS bằng Tailwind v4: `tailwindcss -i assets/input.css -o assets/app.css --minify`. Trình soạn mã CodeMirror được dựng trong `tools/editor`.
+Run the tests with `go test ./...`; CI runs gofmt, vet, the tests and govulncheck on every push ([ci.yml](.github/workflows/ci.yml)). Releases are built and signed by GitHub Actions when a `v*` tag is pushed ([release.yml](.github/workflows/release.yml)); the release notes come from that version's section of [CHANGELOG.md](CHANGELOG.md). After editing templates in `internal/web`, rebuild the CSS with Tailwind v4: `tailwindcss -i assets/input.css -o assets/app.css --minify`. The CodeMirror editor is built in `tools/editor`.
 
-## Giấy phép
+## Licence
 
-Mini Panel phát hành theo [GNU General Public License v3.0](LICENSE). Thư viện bên thứ ba và giấy phép của chúng được liệt kê trong [NOTICE](NOTICE).
+Mini Panel is released under the [GNU General Public License v3.0](LICENSE). Third-party libraries and their licences are listed in [NOTICE](NOTICE).

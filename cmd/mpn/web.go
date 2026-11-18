@@ -7,7 +7,6 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -51,12 +50,16 @@ func runWeb(args []string) {
 		webTwoFAOff(args[1:])
 		return
 	}
+	if len(args) > 0 && args[0] == "setup-link" {
+		webSetupLink(args[1:])
+		return
+	}
 	webServe(args)
 }
 
 func webServe(args []string) {
 	fs := flag.NewFlagSet("web", flag.ExitOnError)
-	listen := fs.String("listen", "127.0.0.1:8780", "address to listen on; only loopback addresses are accepted, put nginx with TLS in front")
+	listen := fs.String("listen", "systemd", `where to listen: "systemd" (the socket of mpn-web.socket), "unix:PATH", or a loopback address for development`)
 	account := fs.String("account", defaultAccount, "file with the administrator account")
 	var hosts hostList
 	fs.Var(&hosts, "host", "name the panel is reached by, repeat for several (localhost is always accepted)")
@@ -80,20 +83,25 @@ func webServe(args []string) {
 		}
 	}
 
-	host, _, err := net.SplitHostPort(*listen)
-	fail(err)
-	if ip := net.ParseIP(host); ip == nil || !ip.IsLoopback() {
-		fail(fmt.Errorf("-listen %s: the panel only listens on a loopback address; reach it through nginx with TLS", *listen))
-	}
 	if runtime.GOOS == "linux" && os.Geteuid() == 0 {
 		fail(errors.New("the web panel must not run as root; run it as the mpn-web user"))
 	}
+	ln, trusted, err := webListener(*listen)
+	fail(err)
+	if *trustProxy && !trusted {
+		// On a loopback port any program of the machine can connect and say any client address, which would let it get around the
+		// limit on sign-in attempts or have fail2ban ban the administrator.
+		fmt.Fprintln(os.Stderr, "-trust-proxy is ignored on a TCP port: only a socket that only nginx can open makes X-Real-IP believable")
+		*trustProxy = false
+	}
 	// When the account file is missing the panel can still start: it will show a first-time setup
 	// page and write the file itself, since it runs as the account that owns the directory.
+	// An account file that cannot be read is said in the log, and the panel still starts: every sign-in fails and the setup page
+	// stays closed until root repairs it. Stopping instead would leave nginx with a panel that restarts for ever (504).
 	accountExists := true
 	if _, err := webauth.LoadAccount(*account); err != nil {
 		if !os.IsNotExist(err) {
-			fail(fmt.Errorf("%w\ncreate the account as root with: mpn web passwd", err))
+			log.Printf("the account cannot be read, nobody can sign in until it is repaired (as root: mpn web passwd): %v", err)
 		}
 		accountExists = false
 	}
@@ -106,7 +114,9 @@ func webServe(args []string) {
 		Account: func() (webauth.Account, error) { return webauth.LoadAccount(*account) },
 		// The account file is in the one folder the panel may write to and belongs to the panel's own account, so a new password or
 		// the secret of the two-step sign-in is saved by the panel itself.
-		SaveAccount: func(a webauth.Account) error { return webauth.SaveAccount(*account, a, -1, -1) },
+		SaveAccount:   func(a webauth.Account) error { return webauth.SaveAccount(*account, a, -1, -1) },
+		CreateAccount: func(a webauth.Account) error { return webauth.CreateAccount(*account, a) },
+		SetupKeyFile:  setupKeyPath(*account),
 		// The file of the panel's own name on port 443; when it is there, the database browser is opened under /pma/ of that name.
 		PanelDomainFile: installer.PanelDomainFile,
 		Sessions:        webauth.NewSessions(30*time.Minute, 12*time.Hour, 20),
@@ -139,7 +149,7 @@ func webServe(args []string) {
 		},
 	}
 	hs := &http.Server{
-		Addr: *listen, Handler: srv.Handler(), MaxHeaderBytes: 16 << 10,
+		Handler: srv.Handler(), MaxHeaderBytes: 16 << 10,
 		ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second,
 		WriteTimeout: 25 * time.Minute, // an operation such as a restore can take a while
 		IdleTimeout:  60 * time.Second,
@@ -153,8 +163,8 @@ func webServe(args []string) {
 		defer cancel()
 		_ = hs.Shutdown(sctx)
 	}()
-	fmt.Fprintf(os.Stderr, "panel listening on http://%s\n", *listen)
-	if err := hs.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+	fmt.Fprintf(os.Stderr, "panel listening on %s %s\n", ln.Addr().Network(), ln.Addr())
+	if err := hs.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		fail(err)
 	}
 }

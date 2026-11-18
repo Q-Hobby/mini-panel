@@ -23,7 +23,7 @@ import (
 )
 
 func panelUsage() {
-	fmt.Fprintln(os.Stderr, "usage: mpn panel <ssl-info|ssl|ssl-custom|ssl-off> [flags]   (add -h for the flags)")
+	fmt.Fprintln(os.Stderr, "usage: mpn panel <ssl-info|ssl|ssl-custom|ssl-off|sync|migrate> [flags]   (add -h for the flags)")
 	os.Exit(2)
 }
 
@@ -262,6 +262,8 @@ func runPanel(args []string) {
 		fail(st.SetSetting(panelssl.SettingDomain, ""))
 		fail(syncFront(st))
 		fmt.Println("the panel uses its self-signed certificate again")
+	case "migrate":
+		panelMigrate(st, *apply)
 	case "sync":
 		// Writes or removes the server blocks that give the panel, the database browser and the web mail an address without a port,
 		// to match what is true now. Every command that changes one of the things they depend on does this by itself; this is for

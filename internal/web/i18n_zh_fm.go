@@ -122,7 +122,7 @@ func init() {
 		"fm.done.move":        "已移动 %d 个文件和 %d 个文件夹。",
 		"fm.done.paste.fail":  "无法粘贴。",
 		"fm.paste.partial":    "出错前已完成 %d 个文件和 %d 个文件夹。",
-		"fm.err.inside":       "不能将文件夹粘贴到它自身或其子文件夹中。",	} {
+		"fm.err.inside":       "不能将文件夹粘贴到它自身或其子文件夹中。"} {
 		zh[k] = v
 	}
 }

@@ -26,7 +26,7 @@ func runPlan(args []string) {
 	panelPort := fs.Int("panel-port", 2610, "public HTTPS port of the web panel")
 	var panelHosts hostList
 	fs.Var(&panelHosts, "panel-host", "name the panel is reached by, repeat for several (IP addresses are always accepted)")
-	pma := fs.Bool("pma", false, "also install the database browser (phpMyAdmin) on the port after the panel's; needs -panel and a database engine")
+	pma := fs.Bool("pma", true, "also install the database browser (phpMyAdmin) on the port after the panel's, when -panel and a database engine are given; -pma=false leaves it out")
 	apply := fs.Bool("apply", false, "apply the plan to this machine (Linux, root); RAM, CPUs and swap are detected unless given")
 	_ = fs.Parse(args)
 
@@ -45,7 +45,7 @@ func runPlan(args []string) {
 		Target: t, Profile: tune.New(tune.Input{RAMMB: *ram, CPUs: *cpus}),
 		CurrentSwapMB: *swap, Engine: eng, DBSeries: *series,
 		PHPVersions: splitList(*phpList), NodeVersions: splitList(*nodeList), SelfPath: selfPath(),
-		Panel: *panel, PanelPort: *panelPort, PanelHosts: panelHosts, PMA: *pma,
+		Panel: *panel, PanelPort: *panelPort, PanelHosts: panelHosts, PMA: *pma && *panel && eng != "",
 	})
 	fail(err)
 	if *apply {

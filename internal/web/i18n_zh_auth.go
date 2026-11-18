@@ -22,6 +22,8 @@ func init() {
 		"setup.badge":              "初始设置",
 		"login.code.heading":       "输入验证码。",
 		"setup.password.confirm":   "确认密码",
+		"setup.locked":             "请使用安装结束时打印的设置链接打开此页面。如果链接已丢失，请通过 SSH 登录服务器并运行：",
+		"setup.locked.hint":        "该链接只在创建第一个账户之前有效。",
 		"notfound.home":            "返回首页",
 		"auth.username":            "用户名",
 		"auth.password.show.label": "显示密码",

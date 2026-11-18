@@ -52,6 +52,28 @@ jobs:
           [ "$(./release/mpn_linux_amd64 version)" = "$VERSION" ] || { echo "::error::binary version does not match the tag"; exit 1; }
           cd release && sha256sum mpn_linux_* > SHA256SUMS && cat SHA256SUMS
 
+      # mpn update trusts a release only when SHA256SUMS is signed with the key built into the program (internal/update). The
+      # trusted comment names the version, so an old release cannot be passed off as a new one. The secret key is the secret
+      # MPN_RELEASE_KEY; it is written to a file only for this step.
+      - name: Sign
+        env:
+          MPN_RELEASE_KEY: ${{ secrets.MPN_RELEASE_KEY }}
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          [ -n "$MPN_RELEASE_KEY" ] || { echo "::error::the secret MPN_RELEASE_KEY is missing"; exit 1; }
+          curl -fsSL -o /tmp/minisign.tar.gz https://github.com/jedisct1/minisign/releases/download/0.12/minisign-0.12-linux.tar.gz
+          echo "9a599b48ba6eb7b1e80f12f36b94ceca7c00b7a5173c95c3efc88d9822957e73  /tmp/minisign.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/minisign.tar.gz -C /tmp
+          MS=/tmp/minisign-linux/x86_64/minisign
+          umask 077
+          printf '%s\n' "$MPN_RELEASE_KEY" > /tmp/mpn-release.key
+          "$MS" -S -s /tmp/mpn-release.key -m release/SHA256SUMS -t "mpn ${VERSION}"
+          rm -f /tmp/mpn-release.key
+          pub=$(sed -n 's/^const ReleaseKey = "\(.*\)"/\1/p' internal/update/update.go)
+          "$MS" -V -P "$pub" -m release/SHA256SUMS
+          cat release/SHA256SUMS.minisig
+
       # The notes of the release are this version's section of CHANGELOG.md.
       - name: Release notes
         run: |

@@ -283,9 +283,9 @@ func (s *Store) AddSite(st site.Site) error {
 		php = nullStr(st.PHPVersion)
 		phpIni = iniJSON(st.PHPIni)
 	case site.Node:
-		port, nodeVer, entry, mem = st.NodePort, nullStr(st.NodeVersion), nullStr(st.Entry), st.MemMB
+		port, nodeVer, entry, mem = appPort(st), nullStr(st.NodeVersion), nullStr(st.Entry), st.MemMB
 	case site.Python:
-		port, pyVer, entry, mem = st.NodePort, nullStr(st.PyVersion), nullStr(st.Entry), st.MemMB
+		port, pyVer, entry, mem = appPort(st), nullStr(st.PyVersion), nullStr(st.Entry), st.MemMB
 	case site.Proxy:
 		upstream = nullStr(st.Upstream)
 	}
@@ -513,6 +513,14 @@ func (s *Store) load(where string, args ...any) ([]site.Site, error) {
 	return out, hrows.Err()
 }
 
+// appPort is the port column of an app: NULL for one on a Unix socket, so any number of them fit the UNIQUE column.
+func appPort(st site.Site) any {
+	if st.NodePort == 0 {
+		return nil
+	}
+	return st.NodePort
+}
+
 // iniJSON stores the PHP settings of a site, or NULL when there are none.
 func iniJSON(m map[string]string) any {
 	if len(m) == 0 {
@@ -542,9 +550,9 @@ func (s *Store) UpdateSite(st site.Site) error {
 	case site.PHP:
 		php, phpIni = nullStr(st.PHPVersion), iniJSON(st.PHPIni)
 	case site.Node:
-		port, nodeVer, entry, mem = st.NodePort, nullStr(st.NodeVersion), nullStr(st.Entry), st.MemMB
+		port, nodeVer, entry, mem = appPort(st), nullStr(st.NodeVersion), nullStr(st.Entry), st.MemMB
 	case site.Python:
-		port, pyVer, entry, mem = st.NodePort, nullStr(st.PyVersion), nullStr(st.Entry), st.MemMB
+		port, pyVer, entry, mem = appPort(st), nullStr(st.PyVersion), nullStr(st.Entry), st.MemMB
 	case site.Proxy:
 		upstream = nullStr(st.Upstream)
 	}

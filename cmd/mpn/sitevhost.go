@@ -63,7 +63,7 @@ func siteVhost(args []string) {
 		raw, err := io.ReadAll(io.LimitReader(os.Stdin, vhost.MaxCustom+1))
 		fail(err)
 		s.CustomVhost = string(raw)
-		fail(vhost.CheckCustom(s.CustomVhost, s.TLS))
+		fail(vhost.CheckCustomFor(s.CustomVhost, s.Name, s.TLS))
 	} else {
 		s.CustomVhost = ""
 	}

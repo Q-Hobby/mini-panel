@@ -48,14 +48,17 @@ const http = require('http');
 const PAGE = %s;
 const esc = (s) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-http.createServer((req, res) => {
+const server = http.createServer((req, res) => {
   const body = PAGE
     .replace('{{HOST}}', () => esc(req.headers.host || ''))
     .replace('{{RUNTIME}}', () => 'Node.js ' + process.version)
     .replace('{{FILE}}', () => %s);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(body);
-}).listen(process.env.PORT || 3000, '127.0.0.1');
+});
+// mpn gives the app a Unix socket in SOCKET, or a port in PORT on 127.0.0.1.
+if (process.env.SOCKET) server.listen(process.env.SOCKET);
+else server.listen(process.env.PORT || 3000, '127.0.0.1');
 `, PageMarker, jsString(welcomeHTML), jsString(file))
 }
 
@@ -64,6 +67,7 @@ func pythonPage(file string) string {
 import html
 import os
 import platform
+import socket
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 PAGE = %s
@@ -84,7 +88,19 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
 
-HTTPServer(('127.0.0.1', int(os.environ.get('PORT', '8000'))), Handler).serve_forever()
+class UnixHTTPServer(HTTPServer):
+    address_family = socket.AF_UNIX
+
+    def server_bind(self):
+        self.socket.bind(self.server_address)
+        self.server_name, self.server_port = 'localhost', 0
+
+
+# mpn gives the app a Unix socket in SOCKET, or a port in PORT on 127.0.0.1.
+if os.environ.get('SOCKET'):
+    UnixHTTPServer(os.environ['SOCKET'], Handler).serve_forever()
+else:
+    HTTPServer(('127.0.0.1', int(os.environ.get('PORT', '8000'))), Handler).serve_forever()
 `, PageMarker, jsString(welcomeHTML), jsString(file))
 }
 

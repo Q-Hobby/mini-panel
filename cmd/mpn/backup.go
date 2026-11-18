@@ -31,6 +31,8 @@ func runBackup(args []string) {
 		backupRestore(args[1:])
 	case "prune":
 		backupPrune(args[1:])
+	case "seal":
+		backupSeal(args[1:])
 	default:
 		backupUsage()
 	}
@@ -90,6 +92,37 @@ func readManifest(siteName, stamp string) (backup.Manifest, error) {
 	}
 	return backup.ParseManifest(string(b))
 }
+
+// backupSeal is the last step of a backup: it sums the files and writes the MANIFEST signed with the server's key. It is a step
+// of the plan and not meant to be run by hand.
+func backupSeal(args []string) {
+	fs := flag.NewFlagSet("backup seal", flag.ExitOnError)
+	dir := fs.String("dir", "", "folder of the backup")
+	name := fs.String("site", "", "site")
+	stamp := fs.String("stamp", "", "name of the backup")
+	htdocs := fs.Bool("htdocs", false, "files.tar.gz holds the whole htdocs")
+	var dbs multiFlag
+	fs.Var(&dbs, "dbname", "a database in the backup (repeat)")
+	_ = fs.Parse(args)
+	requireLinuxRoot()
+	if !site.ValidName(*name) || !backup.ValidStamp(*stamp) || *dir != backup.Dir(*name, *stamp) {
+		fail(errors.New("backup seal: the folder must be the backup of -site at -stamp"))
+	}
+	for _, d := range dbs {
+		if !dbadmin.ValidName(d) || !dbadmin.OwnedBy(d, *name) {
+			fail(fmt.Errorf("backup seal: %q is not a database of %q", d, *name))
+		}
+	}
+	key, err := backup.LoadKey(backup.KeyFile)
+	fail(err)
+	fail(backup.Seal(*dir, backup.Manifest{Site: *name, Stamp: *stamp, Files: true, Htdocs: *htdocs, DBs: dbs}, key))
+}
+
+// multiFlag is a flag that may be given more than once.
+type multiFlag []string
+
+func (m *multiFlag) String() string     { return strings.Join(*m, ",") }
+func (m *multiFlag) Set(v string) error { *m = append(*m, v); return nil }
 
 func dirSizeMB(dir string) float64 {
 	var n int64

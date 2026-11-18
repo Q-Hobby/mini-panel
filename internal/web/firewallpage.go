@@ -33,7 +33,7 @@ func (s *Server) firewallPages(mux *http.ServeMux) {
 
 func (s *Server) firewallPage(w http.ResponseWriter, r *http.Request, ss webauth.Session) {
 	T := translatorForWriter(w)
-	v := &fwView{Client: s.clientKey(r), Max: firewall.MaxRules}
+	v := &fwView{Client: s.clientAddr(r), Max: firewall.MaxRules}
 	v.Error = s.listText(T, ctl.Request{Op: "firewall.status"}, v)
 	s.show(w, 200, ss, view{Page: "firewall", FW: v})
 }
@@ -77,7 +77,7 @@ func (s *Server) fwAdd(w http.ResponseWriter, r *http.Request, ss webauth.Sessio
 		if _, err := firewall.ValidRule(rule); err != nil {
 			return ctl.Request{}, T("fw.err.rule", err.Error())
 		}
-		return ctl.Request{Op: "firewall.add", FwAction: rule.Action, FwProto: rule.Proto, FwPort: rule.Port, FwSource: rule.Source, FwComment: rule.Comment, Client: s.clientKey(r)}, ""
+		return ctl.Request{Op: "firewall.add", FwAction: rule.Action, FwProto: rule.Proto, FwPort: rule.Port, FwSource: rule.Source, FwComment: rule.Comment, Client: s.clientAddr(r)}, ""
 	})
 }
 
@@ -93,7 +93,7 @@ func (s *Server) fwBlock(w http.ResponseWriter, r *http.Request, ss webauth.Sess
 		if _, err := firewall.ValidRule(rule); err != nil {
 			return ctl.Request{}, T("fw.err.rule", err.Error())
 		}
-		return ctl.Request{Op: "firewall.add", FwAction: rule.Action, FwProto: rule.Proto, FwSource: rule.Source, FwComment: rule.Comment, Client: s.clientKey(r)}, ""
+		return ctl.Request{Op: "firewall.add", FwAction: rule.Action, FwProto: rule.Proto, FwSource: rule.Source, FwComment: rule.Comment, Client: s.clientAddr(r)}, ""
 	})
 }
 

@@ -115,10 +115,11 @@ func LoadPending(path string) (Pending, error) {
 
 func SavePending(path string, p Pending) error { return writeJSON(path, p) }
 
-// SiteSync is the setting that says a site is copied to the drive.
+// SiteKey is the setting that says a site is copied to the storage. The name is the one from the days of Google Drive only, kept so
+// that servers set up then go on copying the same sites.
 func SiteKey(siteName string) string { return "gdrive_sync_" + siteName }
 
-// Used reports whether a settings key belongs to a valid site; a key is never built from anything but a checked name.
+// ValidSiteForKey reports whether a settings key belongs to a valid site; a key is never built from anything but a checked name.
 func ValidSiteForKey(name string) bool { return site.ValidName(name) }
 
 // State is how the last sync of a site ended; the panel shows it.

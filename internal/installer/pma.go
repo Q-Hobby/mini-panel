@@ -40,6 +40,9 @@ func PMAPort(panelPort int) int { return panelPort + 1 }
 // the key and nothing else is shared. An account of that name that mpn did not make stops the plan.
 const pmaUserScript = `if id -u ` + pmaAccount + ` >/dev/null 2>&1; then [ "$(getent passwd ` + pmaAccount + ` | cut -d: -f5)" = '` + pmaMark + `' ] || { echo 'account ` + pmaAccount + ` already exists and was not created by mpn' >&2; exit 1; }; else useradd --system --user-group --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin --comment '` + pmaMark + `' ` + pmaAccount + `; fi
 usermod -aG ` + pmaAccount + ` mpn-web
+# The sign-on page asks the panel on its socket, which only this group may open.
+getent group ` + FrontGroup + ` >/dev/null || groupadd --system ` + FrontGroup + `
+usermod -aG ` + FrontGroup + ` ` + pmaAccount + `
 install -d -m 0755 /etc/mpn
 install -d -o root -g ` + pmaAccount + ` -m 0750 ` + pmaConf + `
 [ -s ` + pmaConf + `/secret ] || { head -c 64 /dev/urandom | base64 -w0 | tr -d '/+=' | cut -c1-48 > ` + pmaConf + `/secret; }
@@ -62,7 +65,10 @@ rm -rf "$t/x/setup" "$t/x/examples" "$t/x/doc" "$t/x/test" "$t/x/composer.json" 
 echo '` + pmaVersion + `' > "$t/x/.mpn-version"
 install -d -m 0755 "$(dirname "$d")"
 rm -rf "$d.old"; [ -e "$d" ] && mv "$d" "$d.old"; mv "$t/x" "$d"; rm -rf "$d.old"
-chown -R root:root "$d"; find "$d" -type d -exec chmod 755 {} +; find "$d" -type f -exec chmod 644 {} +`
+chown -R root:root "$d"; find "$d" -type d -exec chmod 755 {} +; find "$d" -type f -exec chmod 644 {} +
+# A folder moved out of /tmp keeps the label of /tmp (user_tmp_t), which PHP-FPM may not read under SELinux: 403 on every page
+# (seen on AlmaLinux 9 when the database browser was installed from the Services page). Give it the label of its path.
+! command -v restorecon >/dev/null 2>&1 || restorecon -R "$d"`
 
 // pmaStateScript makes the folders the browser writes to: its sessions and its temporary files, for its account alone.
 const pmaStateScript = `install -d -o ` + pmaAccount + ` -g ` + pmaAccount + ` -m 0700 ` + pmaState + ` ` + pmaState + `/sessions ` + pmaState + `/tmp`
@@ -151,8 +157,8 @@ $key = trim((string) @file_get_contents('` + pmaConf + `/secret'));
 if (strlen($key) < 32) {
     stop('phpMyAdmin chưa được cấu hình xong.', 500);
 }
-$ch = curl_init('http://127.0.0.1:@BACKEND@/_pma/ticket?t=' . $t);
-curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 5, CURLOPT_HTTPHEADER => ['X-Mpn-Key: ' . $key, 'Host: localhost']]);
+$ch = curl_init('http://localhost/_pma/ticket?t=' . $t);
+curl_setopt_array($ch, [CURLOPT_UNIX_SOCKET_PATH => '@BACKEND@', CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 5, CURLOPT_HTTPHEADER => ['X-Mpn-Key: ' . $key]]);
 $body = curl_exec($ch);
 $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
 curl_close($ch);
@@ -187,8 +193,8 @@ header('Cache-Control: no-store');
 $u = $_COOKIE['MpnPmaUser'] ?? '';
 $key = trim((string) @file_get_contents('` + pmaConf + `/secret'));
 if (is_string($u) && preg_match('/^pma_[0-9a-z]{6,8}_[0-9a-z]{8}$/', $u) && strlen($key) >= 32) {
-    $ch = curl_init('http://127.0.0.1:@BACKEND@/_pma/end?u=' . $u);
-    curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 5, CURLOPT_HTTPHEADER => ['X-Mpn-Key: ' . $key, 'Host: localhost']]);
+    $ch = curl_init('http://localhost/_pma/end?u=' . $u);
+    curl_setopt_array($ch, [CURLOPT_UNIX_SOCKET_PATH => '@BACKEND@', CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 5, CURLOPT_HTTPHEADER => ['X-Mpn-Key: ' . $key]]);
     curl_exec($ch);
     curl_close($ch);
 }
@@ -231,15 +237,8 @@ func pmaNginx(panelPort int) string {
     add_header Cache-Control "no-store" always;
     server_tokens off;
 
-    # Is this visitor signed in to the panel? The panel answers 204 or 401 from the cookie it sees.
-    location = /_mpn_auth {
-        internal;
-        proxy_pass http://127.0.0.1:` + fmt.Sprint(PanelBackendPort) + `/_pma/auth;
-        proxy_pass_request_body off;
-        proxy_set_header Content-Length "";
-        proxy_set_header Host localhost;
-        proxy_set_header Cookie $http_cookie;
-    }
+    # Is this visitor signed in to the panel?
+    ` + panelAuthLocation() + `
     error_page 401 = @mpn_login;
     location @mpn_login { return 302 https://$host:` + fmt.Sprint(panelPort) + `/login; }
 
@@ -305,6 +304,7 @@ func pmaStep(o Options) (Step, error) {
 	if PMAPort(port) > 65535 || PMAPort(port) == PanelBackendPort {
 		return Step{}, fmt.Errorf("the database browser would need port %d: choose another panel port", PMAPort(port))
 	}
+	backend := PanelSocket
 	src := aptsrc.PHP(o.Target)
 	acts := []Action{}
 	if !slices.Contains(o.PHPVersions, pmaPHP) { // the PHP step has not installed it
@@ -317,7 +317,6 @@ func pmaStep(o Options) (Step, error) {
 		}
 		acts = append(acts, aptInstall(pkgs...))
 	}
-	backend := fmt.Sprint(PanelBackendPort)
 	repl := strings.NewReplacer("@BACKEND@", backend, "@PANELPORT@", fmt.Sprint(port))
 	acts = append(acts,
 		Run("sh", "-c", pmaInstallScript),

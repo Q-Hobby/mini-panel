@@ -67,7 +67,13 @@ type Server struct {
 	// SaveAccount writes the administrator's account (a changed password, the secret of the two-step sign-in). The account file
 	// belongs to the panel's own account, so no help from the root helper is needed; nil switches those settings off.
 	SaveAccount func(webauth.Account) error
-	twofa       twoFactor
+	// CreateAccount writes the first account, and fails with fs.ErrExist when an account file is there already. SetupKeyFile holds the
+	// key of the setup link (see setuppage.go); without it the setup page stays closed.
+	CreateAccount func(webauth.Account) error
+	SetupKeyFile  string
+	// accountMu makes reading the account, checking a code against it and saving the used step one step, so a code works once.
+	accountMu sync.Mutex
+	twofa     twoFactor
 	// PanelDomainFile is the nginx file of the panel's name on port 443. When it exists and a request came to that plain address, the
 	// database browser is opened under /pma/ of the name and not on its own port.
 	PanelDomainFile string
@@ -191,7 +197,9 @@ func (s *Server) cookieName() string {
 	return "mpn"
 }
 
-func (s *Server) clientKey(r *http.Request) string {
+// clientAddr is the address of the visitor: what nginx says in X-Real-IP when the panel trusts it (it listens on a socket only nginx
+// can open), else the address of the connection.
+func (s *Server) clientAddr(r *http.Request) string {
 	if s.TrustProxy {
 		if ip := net.ParseIP(strings.TrimSpace(r.Header.Get("X-Real-IP"))); ip != nil {
 			return ip.String()
@@ -202,6 +210,17 @@ func (s *Server) clientKey(r *http.Request) string {
 		return r.RemoteAddr
 	}
 	return host
+}
+
+// clientKey is what the limit on sign-in attempts counts by: the address, and for IPv6 its /64, because one machine is usually given a
+// whole /64 and can take a new address in it for every try. The log line fail2ban reads keeps the full address (clientAddr).
+func (s *Server) clientKey(r *http.Request) string {
+	a := s.clientAddr(r)
+	ip := net.ParseIP(a)
+	if ip == nil || ip.To4() != nil {
+		return a
+	}
+	return ip.Mask(net.CIDRMask(64, 128)).String() + "/64"
 }
 
 // auth wraps a handler that needs a logged-in user. A form post must also carry the session's CSRF token.
@@ -228,16 +247,29 @@ func (s *Server) auth(h func(http.ResponseWriter, *http.Request, webauth.Session
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	T := translatorForWriter(w)
 	key := s.clientKey(r)
-	if d := s.Throttle.Wait(key); d > 0 {
+	locked := func(d time.Duration) {
 		w.Header().Set("Retry-After", strconv.Itoa(int(d.Seconds())+1))
 		s.render(w, http.StatusTooManyRequests, view{Page: "login", Error: T("login.locked", int(d.Seconds())+1)})
+	}
+	release, d := s.Throttle.Admit(key)
+	if d > 0 {
+		locked(d)
 		return
 	}
+	defer release()
 	user, pw := r.PostFormValue("user"), r.PostFormValue("password")
 	acct, err := s.Account()
-	if err != nil || len(user) > 64 || len(pw) > 256 || !acct.Check(user, pw) {
+	good := false
+	if err == nil && len(user) <= 64 && len(pw) <= 256 {
+		var busy error
+		if good, busy = acct.CheckLimited(user, pw); busy != nil {
+			locked(2 * time.Second)
+			return
+		}
+	}
+	if !good {
 		s.Throttle.Fail(key)
-		log.Printf("login failed from %s", key) // read by the mpn-panel jail of fail2ban
+		log.Printf("login failed from %s", s.clientAddr(r)) // read by the mpn-panel jail of fail2ban
 		s.render(w, http.StatusUnauthorized, view{Page: "login", Error: T("login.wrong")})
 		return
 	}
@@ -275,6 +307,7 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request, _ webauth.Sessio
 
 type view struct {
 	Page, User, CSRF, Error, Title, Nav, Kind   string
+	SetupLocked                                 bool // the setup page was opened without the key of the setup link
 	Sites                                       []siteRow
 	Kinds                                       []string
 	Reserved                                    string
