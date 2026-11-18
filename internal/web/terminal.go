@@ -23,8 +23,9 @@ type Dialer interface {
 	Dial(user string) (*ssh.Client, error)
 }
 
-// basePolicy is the content security policy of every page: nothing from outside, no inline script or style.
-const basePolicy = "default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"
+// basePolicy is the content security policy of every page: nothing from outside, no inline script or style. font-src lets the
+// browser load the panel's own copy of JetBrains Mono; without it the font is blocked and the code fields fall back.
+const basePolicy = "default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self'; font-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"
 
 // stylePolicy is the policy of a page whose script makes style elements while it runs (the terminal and the editor):
 // exactly the ones that carry this page's one-time nonce are allowed, and nothing inline is.
