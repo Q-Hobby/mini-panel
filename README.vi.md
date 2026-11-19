@@ -19,7 +19,7 @@ Bảng điều khiển hosting nhẹ cho VPS nhỏ, viết bằng Go. Một tệ
 curl -fsSL https://mpanel.biz/install.sh | sh
 ```
 
-Bộ cài kiểm tra hệ điều hành, tải `mpn` từ bản phát hành mới nhất trên GitHub và so mã SHA-256 với `SHA256SUMS`. Sau đó nó cài nginx 1.28.3 cùng mô-đun pagespeed, rồi cài panel ở cổng 2610 với chứng chỉ tự ký. Mô-đun ModSecurity chỉ được cài khi bạn bật tường lửa ứng dụng web trong tab Bảo mật. Bộ cài **không** cài PHP, Node.js hay cơ sở dữ liệu: bạn chọn những thứ đó sau, trong trang Dịch vụ của panel.
+Bộ cài kiểm tra hệ điều hành, tải `mpn` từ bản phát hành mới nhất trên GitHub và so mã SHA-256 với `SHA256SUMS`. Sau đó nó cài nginx 1.30.7 cùng mô-đun pagespeed, rồi cài panel ở cổng 2610 với chứng chỉ tự ký. Mô-đun ModSecurity chỉ được cài khi bạn bật tường lửa ứng dụng web trong tab Bảo mật. Bộ cài **không** cài PHP, Node.js hay cơ sở dữ liệu: bạn chọn những thứ đó sau, trong trang Dịch vụ của panel.
 
 Cài xong, mở liên kết thiết lập được in ra (`https://<IP>:2610/setup?t=…`) để tạo tài khoản quản trị. Liên kết có khoá dùng một lần và chỉ dùng được cho tới khi có tài khoản; `mpn web setup-link` in lại liên kết.
 
@@ -47,7 +47,7 @@ Tùy chọn: `MPN_VERSION=1.0.2` để cài một bản cố định, `MPN_PANEL
 - `mpn root` là trình hỗ trợ chạy bằng root, nghe trên socket Unix và chỉ nhận một danh sách thao tác cố định. Mỗi giá trị được kiểm tra lại trước khi thành đối số dòng lệnh, không qua shell.
 - Mật khẩu, khóa riêng và chứng chỉ đi qua đầu vào chuẩn, không nằm trong đối số, log hay cơ sở dữ liệu.
 - Mọi thay đổi trên máy là một kế hoạch gồm nhiều bước, mặc định chỉ xem thử và chạy thật khi có `-apply`. Nếu `nginx -t` hoặc một bước lỗi, tệp cũ được khôi phục.
-- nginx được ghim ở 1.28.3 trên mọi hệ điều hành (từ nginx.org, khoá bằng `apt-mark hold` hoặc `dnf versionlock`), nên `apt upgrade` hay `dnf upgrade` không làm hỏng các mô-đun đã build cho bản đó ([mpn-packages](https://github.com/marixdev/mpn-packages)). Mọi tệp tải về đều được so với mã SHA-256 ghi sẵn trong mã nguồn, và bản phát hành Node.js còn phải có chữ ký hợp lệ của người phát hành Node.js.
+- nginx được ghim ở 1.30.7 trên mọi hệ điều hành (từ nginx.org, khoá bằng `apt-mark hold` hoặc `dnf versionlock`), nên `apt upgrade` hay `dnf upgrade` không làm hỏng các mô-đun đã build cho bản đó ([mpn-packages](https://github.com/marixdev/mpn-packages)). Mọi tệp tải về đều được so với mã SHA-256 ghi sẵn trong mã nguồn, và bản phát hành Node.js còn phải có chữ ký hợp lệ của người phát hành Node.js.
 - Dữ liệu của panel nằm trong SQLite, `/var/lib/mpn/mpn.db` quyền 0600.
 
 ## Các repo đi kèm
@@ -57,7 +57,7 @@ Panel tải các thành phần sau từ bản phát hành của chúng và so m�
 | Repo | Panel dùng để | Ghim ở |
 |---|---|---|
 | [marixdev/mpn-mail](https://github.com/marixdev/mpn-mail) | Web mail ở `/webmail/` (bản tùy biến của lilmail) | `internal/mail/webmail.go` |
-| [marixdev/mpn-packages](https://github.com/marixdev/mpn-packages) | Mô-đun PageSpeed và ModSecurity build cho nginx 1.28.3; PHP 7.0 đến 7.3 và OWASP CRS cho AlmaLinux, Rocky Linux, CentOS Stream | `internal/installer/nginx.go`, `internal/installer/el.go` |
+| [marixdev/mpn-packages](https://github.com/marixdev/mpn-packages) | Mô-đun PageSpeed và ModSecurity build cho nginx 1.30.7; PHP 7.0 đến 7.3 và OWASP CRS cho AlmaLinux, Rocky Linux, CentOS Stream | `internal/installer/nginx.go`, `internal/installer/el.go` |
 
 ## Dòng lệnh
 

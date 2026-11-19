@@ -10,15 +10,15 @@ import (
 )
 
 // One nginx version on every system. A dynamic module only loads into the exact nginx it was built for, and each distribution ships a
-// different nginx (1.18 to 1.28), so the panel uses nginx 1.28.3 from nginx.org and loads two modules built for that version by
-// github.com/marixdev/mpn-nginx-modules. Ubuntu 26.04 already ships 1.28.3, so it keeps the nginx and the packaged modules of the
+// different nginx (1.18 to 1.28), so the panel uses nginx 1.30.7 from nginx.org and loads two modules built for that version by
+// github.com/marixdev/mpn-packages. Ubuntu 26.04 already ships 1.28.3, so it keeps the nginx and the packaged modules of the
 // distribution (see osinfo.Target.NginxOrg).
 const (
-	NginxVersion = "1.28.3"
+	NginxVersion = "1.30.7"
 	// nginxSigningFPR is a fingerprint in the signing key nginx.org publishes; the key is refused when it is not there.
 	nginxSigningFPR = "573BFD6B3D8FBC641079A6ABABF5BD827BD9BF62"
 
-	modulesRelease = "nginx-1.28.3-r2"
+	modulesRelease = "nginx-1.30.7-r1"
 	// The repository was called mpn-nginx-modules until 2026-11-13; GitHub sends the old address to this one.
 	modulesBase = "https://github.com/marixdev/mpn-packages/releases/download/" + modulesRelease
 
@@ -26,12 +26,9 @@ const (
 	nginxKeyring        = "/usr/share/keyrings/nginx-archive-keyring.gpg"
 )
 
-// moduleRelease is the release that holds the PageSpeed module of a system: nginx-1.28.3-r2 for Debian and Ubuntu, nginx-1.28.3-r3 for
-// the RHEL family, whose modules were built later. The ModSecurity module of EL is in el-r1 (see elWAFActions).
+// moduleRelease is the release that holds the PageSpeed module of a system: nginx-1.30.7-r1, for Debian, Ubuntu and the RHEL family.
+// The ModSecurity module of EL is in el-r2 (see elWAFActions).
 func moduleRelease(t osinfo.Target) string {
-	if t.EL() {
-		return "https://github.com/marixdev/mpn-packages/releases/download/nginx-1.28.3-r3"
-	}
 	return modulesBase
 }
 
@@ -42,33 +39,33 @@ const (
 )
 
 // moduleSums are the SHA-256 of the files of the release above, by system and CPU (see moduleKey). A file that does not match is never
-// installed. The x86-64 files are the same as in nginx-1.28.3-r1.
+// installed.
 var moduleSums = map[string]map[string]string{
 	ModPageSpeed: {
-		"jammy":          "76dd04c59dbe853d199a2c0d8e977811a0ff99fa832e7f900373d65b00e1c431",
-		"noble":          "1a54e8c592294a835b1adda9a972c216ba62ad4996df08f996174debf4528da5",
-		"bookworm":       "7b7732689562a0264e7c59de23c378f2bd30d1880c45238e1122710718e21721",
-		"trixie":         "2a16561a51188766326749aa9e87d119e33a5e8446375e1a26e660ef65587d5b",
-		"jammy-arm64":    "829b9b7d9d5f9514a2388d993872f472bb36911350bc4b51c4d7f9c1458c7f03",
-		"noble-arm64":    "be9f8e166e41cb4c87f8d02c5c10b108d569a0a5169093d0e5bfb74119567cb2",
-		"bookworm-arm64": "d7fef1067121ab774f5a5fd29464ac87895b50002d4405e772624fe8cb8b55fc",
-		"trixie-arm64":   "f7eed16b513637083cd41a288f549cd8d2a7322e2a33ecaa7918aefbee918bd4",
-		// EL 9 and 10 (AlmaLinux, Rocky Linux, CentOS Stream), from the nginx-1.28.3-r3 release (see moduleRelease).
-		"el9":        "d8044660816aad93820f29c26690e0a2875cb09ffacbc93902a24fe135627f34",
-		"el9-arm64":  "9eef851a12143e53ea0676198deb3e00b7bec2c3823c458e5e8ebb32ac07442b",
-		"el10":       "7c040f22cc623e5447d7c8e7ebfc34aae33880e7ac9ba38e0bfd3d0d6d8a13a4",
-		"el10-arm64": "84f7921b683f42ec4658a3ab2c19697decaff711d85b086b07cd027a4867e0a3",
+		"jammy":          "040d7613fdfd15ab8a28d8e5c34ac45b0794bdbbcf704f9bc2f8b7061f6812a0",
+		"noble":          "1da61c9b24d9b924fdfddbb869396ed7481412ec4021ef097039ff45cc47962a",
+		"bookworm":       "59a02c472f593c7d1d65c7c051a925367a8a37c84033fff7935be7eba26c6d79",
+		"trixie":         "5190a76ae093e99a95417d6ce4fbb3639264721274bfd173e36f54b95d099ba1",
+		"jammy-arm64":    "98080bd2585fe1766ab8fa3ce9fdf44c925084399fe38f9071f9b004515dde9e",
+		"noble-arm64":    "0047ca17f4121967102b80d94a179f784a63a2e4a3353e9032083dbad3099348",
+		"bookworm-arm64": "9b3fe9d9bfd4c8240cd86c888724d16f71ffa94c530e858c1169127cee8757e5",
+		"trixie-arm64":   "aca6de15b67c60d1faf988ecfb98fc7e471f197568243e3b03835fdc6ffd20cc",
+		// EL 9 and 10 (AlmaLinux, Rocky Linux, CentOS Stream).
+		"el9":        "57d7a1fef06296639e172f1467b6bf83d70fcaaec63506b923728458bef72279",
+		"el9-arm64":  "33e8912b276f8884177270cb8d39aa431842fb545b8f2e58f33509932890ef60",
+		"el10":       "4766892fa51246f2b49858b19fd3980d4ca70541dfe728c1a7460789330b3ddc",
+		"el10-arm64": "d1cc67b6eb4b427eedf42c6fe4c7e61aecb988e6327571b450fbd7423450baac",
 	},
 	ModModSecurity: {
-		"jammy":          "97c36e71bf8d896461ee37c74b7fc9496c758dfa247c0d6f640c22a59a94256d",
-		"noble":          "3cd94b8e89db382d0dd4de7b6cfdf08a98b1b3137115d51cb5cf473f6511d2f6",
-		"bookworm":       "6ccb5f5b45bff0cdfe4e96e7940fecdc3e629b112891adea123dda9547fcf391",
-		"trixie":         "e33ee1a9b4c2d5c4d18bd37f7ee38d530d5a573715827430840469eac5883e25",
-		"jammy-arm64":    "0541c98268f45bf04a2e8f5ed91b5c18bbf13d6e6ad772802b2993ddcccbb9b8",
-		"noble-arm64":    "3ea21c9457cf4269baea6371c46c1951cd73f237e9a48a82d3b2c62e0d0e5eb4",
-		"bookworm-arm64": "496c1ee02512c3e7ae096037388f6a4bedddf2a101e6d455dd640a686e09e955",
-		"trixie-arm64":   "61acb1d77dcedb3941701850131545251aa24ded104b371b6b4f2be2fae1e0fb",
-		// The ModSecurity module of EL comes from el-r1 with the rules (see elWAFActions and elSums).
+		"jammy":          "0fdcfc8ce3bedb5ed57d8d755df0c6c454f3f508c25f5167ca34a7d8f403134e",
+		"noble":          "bbd20dfbebc0fb3293e48fa3aa2e7f889dbb418f26f1c2d5ca124b12489ea4b4",
+		"bookworm":       "8bdc64c4cbb51d8d6a7cfad3abadefa0af1b9fa645d04f8fc8e9f90838140d70",
+		"trixie":         "3e64fb1a0f4ea0521201f6cabeca87893ad04e8947060c44421c954ebaec6f92",
+		"jammy-arm64":    "1a7c9a62e91a2259aec26dd3bd226db13ea4702cc56890b78ed35340fc2ee9c5",
+		"noble-arm64":    "3c6ccd7cabf5346430341eb1c66c002abbb5e335cc7253410a6664800481184d",
+		"bookworm-arm64": "fd25027fca704581455437d682ecd446fe58024e11e593e9cb30d355eec87940",
+		"trixie-arm64":   "8136051db3558796bfd69cb87fd2d250a8be64ab5e5651a8fcbba8d387dfa15d",
+		// The ModSecurity module of EL comes from el-r2 with the rules (see elWAFActions and elSums).
 	},
 }
 
@@ -86,7 +83,7 @@ func moduleKey(codename, arch string) string {
 }
 
 // ModuleFile is the name of the release file of a module for a system and a CPU ("amd64" or "arm64", as runtime.GOARCH says):
-// ngx_pagespeed_module-trixie-nginx1.28.3.so on x86-64, ngx_pagespeed_module-trixie-nginx1.28.3-arm64.so on arm64.
+// ngx_pagespeed_module-trixie-nginx1.30.7.so on x86-64, ngx_pagespeed_module-trixie-nginx1.30.7-arm64.so on arm64.
 func ModuleFile(kind, codename, arch string) string {
 	suffix := ""
 	if arch == "arm64" {
@@ -133,7 +130,7 @@ gpg --batch --with-colons --show-keys "$t" | awk -F: '$1=="fpr"{print $10}' | gr
 gpg --batch --dearmor < "$t" > ` + nginxKeyring + `.tmp
 mv ` + nginxKeyring + `.tmp ` + nginxKeyring
 
-// nginxOrgSources are the apt files that make apt take nginx 1.28.3 from nginx.org and no other version. The pin has a priority above
+// nginxOrgSources are the apt files that make apt take nginx 1.30.7 from nginx.org and no other version. The pin has a priority above
 // 1000, so apt installs that version even over a newer one, and the hold keeps it from moving at all.
 func nginxOrgSources(t osinfo.Target) (list, prefs string) {
 	list = "# Written by mpn.\ndeb [signed-by=" + nginxKeyring + "] https://nginx.org/packages/" + t.ID + " " + t.Codename + " nginx\n"
@@ -241,7 +238,7 @@ func WAFPackagesPlan(t osinfo.Target, nginxVersion string) (Plan, error) {
 	return Plan{{Name: "ModSecurity packages", Actions: acts}}, nil
 }
 
-// NginxVersionOf reads the version out of the output of "nginx -v" ("nginx version: nginx/1.28.3"), or "".
+// NginxVersionOf reads the version out of the output of "nginx -v" ("nginx version: nginx/1.30.7"), or "".
 func NginxVersionOf(out string) string {
 	_, v, ok := strings.Cut(out, "nginx/")
 	if !ok {

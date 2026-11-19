@@ -118,7 +118,7 @@ func currentSecurity(st *store.Store) secStatus {
 	return s
 }
 
-// wafPackagesPlan installs ModSecurity for the nginx this machine runs: the module built for nginx 1.28.3 from nginx.org on a system
+// wafPackagesPlan installs ModSecurity for the nginx this machine runs: the module built for the pinned nginx from nginx.org on a system
 // that uses it, and the package of the distribution on the others (see installer.WAFPackagesPlan).
 func wafPackagesPlan() (installer.Plan, error) {
 	raw, err := os.ReadFile("/etc/os-release")

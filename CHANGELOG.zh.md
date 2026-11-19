@@ -4,6 +4,21 @@ Mini Panel 的所有重要变更都记录在这里。版本号遵循[语义化�
 
 本文译自 [CHANGELOG.md](CHANGELOG.md)（英文）。另有[越南语版](CHANGELOG.vi.md)。
 
+## [1.2.2] - 2026-11-19
+
+### 安全
+
+- nginx 从 1.28.3 升级到 1.30.7，修复 2026 年 11 月 18 日公布的 nginx 安全公告，其中包括 CVE-2026-123007（HTTP/2 流量控制中的内存损坏，在所有启用 HTTP/2 的站点上无需登录即可触发）和 CVE-2026-118899。1.28 分支没有修复版本。PageSpeed 和 ModSecurity 模块已针对 1.30.7 重新构建（[nginx-1.30.7-r1](https://github.com/marixdev/mpn-packages/releases/tag/nginx-1.30.7-r1)、[el-r2](https://github.com/marixdev/mpn-packages/releases/tag/el-r2)），并照旧校验 SHA-256。
+
+### 修复
+
+- 在尚未创建管理员账户的机器上，`mpn update` 会恢复旧版本：此时 `/login` 跳转到 `/setup`，检查误以为面板没有响应。此修复从 1.2.2 起的更新生效。
+- 面板自身的字体（JetBrains Mono）在每个页面上都被内容安全策略拒绝。
+
+### 升级说明
+
+- `mpn update`（以及“更新”页面）会把旧版本安装的机器上的 nginx 升级到 1.30.7，并一同更换其加载的模块。旧的配置和模块保存在 `/var/backups/mpn-nginx-upgrade/old`。如果新 nginx 未通过 `nginx -t`，会恢复旧的软件包、模块和版本锁定，更新随即停止。Ubuntu 26.04 继续使用发行版自带的 nginx。
+
 ## [1.2.1] - 2026-11-18
 
 ### 修复

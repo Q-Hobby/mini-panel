@@ -4,6 +4,21 @@ Mọi thay đổi đáng kể của Mini Panel được ghi ở đây. Số phi�
 
 Bản chính bằng tiếng Anh: [CHANGELOG.md](CHANGELOG.md). Có thêm bản [tiếng Trung](CHANGELOG.zh.md).
 
+## [1.2.2] - 2026-11-19
+
+### Bảo mật
+
+- nginx lên 1.30.7 từ 1.28.3, vá các lỗ hổng nginx công bố ngày 18/11/2026, trong đó có CVE-2026-123007 (hỏng bộ nhớ trong điều khiển luồng HTTP/2, khai thác được mà không cần đăng nhập trên mọi site bật HTTP/2) và CVE-2026-118899. Nhánh 1.28 không có bản vá. Module PageSpeed và ModSecurity được build lại cho 1.30.7 ([nginx-1.30.7-r1](https://github.com/marixdev/mpn-packages/releases/tag/nginx-1.30.7-r1), [el-r2](https://github.com/marixdev/mpn-packages/releases/tag/el-r2)) và vẫn được kiểm SHA-256 như trước.
+
+### Sửa
+
+- `mpn update` khôi phục bản cũ trên máy chưa tạo tài khoản quản trị, vì ở đó `/login` chuyển sang `/setup` và bước kiểm tra tưởng panel không trả lời. Bản sửa có tác dụng khi cập nhật từ 1.2.2 trở đi.
+- Phông chữ của chính panel (JetBrains Mono) bị chính sách bảo mật nội dung (CSP) chặn trên mọi trang.
+
+### Ghi chú khi nâng cấp
+
+- `mpn update` (và trang Cập nhật) đưa nginx của máy cài bằng bản cũ lên 1.30.7, cùng các module máy đang nạp. Cấu hình và module cũ được giữ ở `/var/backups/mpn-nginx-upgrade/old`. Nếu nginx mới không qua `nginx -t`, gói, module và chỗ ghim cũ được đặt lại và việc cập nhật dừng. Ubuntu 26.04 giữ nginx của bản phân phối.
+
 ## [1.2.1] - 2026-11-18
 
 ### Sửa

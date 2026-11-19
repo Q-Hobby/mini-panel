@@ -3,10 +3,12 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 
 	"mpn/internal/distro"
 	"mpn/internal/installer"
+	"mpn/internal/osinfo"
 	"mpn/internal/store"
 )
 
@@ -20,6 +22,7 @@ func panelMigrate(st *store.Store, apply bool) {
 			fmt.Fprintf(os.Stderr, "could not install %s: %v; the copy to off-site storage will not work until mpn update -apply runs\n", mpnCloudFile, err)
 		}
 	}
+	nginxUpgrade(apply)
 	unit, err := os.ReadFile(installer.WebUnitFile)
 	if os.IsNotExist(err) {
 		fmt.Println("the web panel is not installed on this machine; nothing to do")
@@ -49,6 +52,42 @@ func panelMigrate(st *store.Store, apply bool) {
 	// The blocks of the panel's name on port 443 and the pages of the database browser follow the same way.
 	fail(syncFront(st))
 	fmt.Println("the panel now listens on its socket, " + installer.PanelSocket)
+}
+
+// nginxUpgrade moves nginx from nginx.org to the version this release pins (installer.NginxVersion), with the modules the machine
+// loads now built for that version. A machine already there, or one whose nginx comes from its distribution, is left alone.
+func nginxUpgrade(apply bool) {
+	raw, err := os.ReadFile("/etc/os-release")
+	if err != nil {
+		return
+	}
+	t, err := osinfo.Parse(string(raw))
+	if err != nil {
+		return
+	}
+	v, _ := exec.Command("nginx", "-v").CombinedOutput() // "nginx -v" prints on standard error
+	running := installer.NginxVersionOf(string(v))
+	if !installer.NginxUpgradeNeeded(t, running) {
+		return
+	}
+	var mods []string
+	for _, kind := range []string{installer.ModPageSpeed, installer.ModModSecurity} {
+		if installer.ModuleLoaded(kind) {
+			mods = append(mods, kind)
+		}
+	}
+	acts, err := installer.NginxUpgradeActions(installer.NginxUpgradeInput{Target: t, Running: running, Modules: mods})
+	fail(err)
+	plan := installer.Plan{{Name: "nginx " + running + " to " + installer.NginxVersion, Actions: acts}}
+	if !apply {
+		fmt.Print(plan)
+		fmt.Println("# checked only. Add -apply to change this machine.")
+		return
+	}
+	requireLinuxRoot()
+	if err := runPlanQuiet(plan); err != nil {
+		fail(fmt.Errorf("moving nginx to %s failed: %w\nnginx %s and its modules were put back; the files before the change are in /var/backups/mpn-nginx-upgrade/old", installer.NginxVersion, err, running))
+	}
 }
 
 // panelConfOnSocket says whether the panel's nginx file points at the socket.

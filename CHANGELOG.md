@@ -4,6 +4,21 @@ All notable changes to Mini Panel are recorded here. Version numbers follow [Sem
 
 Translations: [Tiếng Việt](CHANGELOG.vi.md) · [中文](CHANGELOG.zh.md).
 
+## [1.2.2] - 2026-11-19
+
+### Security
+
+- nginx moves from 1.28.3 to 1.30.7, which fixes the nginx advisories of 18 November 2026, among them CVE-2026-123007 (memory corruption in HTTP/2 flow control, reachable without signing in on every site with HTTP/2) and CVE-2026-118899. The 1.28 branch gets no fix. The PageSpeed and ModSecurity modules are built again for 1.30.7 ([nginx-1.30.7-r1](https://github.com/marixdev/mpn-packages/releases/tag/nginx-1.30.7-r1), [el-r2](https://github.com/marixdev/mpn-packages/releases/tag/el-r2)) and checked by SHA-256 as before.
+
+### Fixed
+
+- `mpn update` put the previous version back on a machine where the admin account had not been made yet, because `/login` sends the browser to `/setup` there and the check took that for the panel not answering. The fix works for updates from 1.2.2 on.
+- The panel's own font (JetBrains Mono) was refused by the content security policy on every page.
+
+### Upgrade notes
+
+- `mpn update` (and the Update page) moves nginx of a machine installed by an earlier version to 1.30.7, together with the modules it loads. The old configuration and modules are kept in `/var/backups/mpn-nginx-upgrade/old`. If the new nginx fails `nginx -t`, the old package, modules and pin are put back and the update stops. Ubuntu 26.04 keeps the nginx of the distribution.
+
 ## [1.2.1] - 2026-11-18
 
 ### Fixed
