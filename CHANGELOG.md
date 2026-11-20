@@ -4,6 +4,16 @@ All notable changes to Mini Panel are recorded here. Version numbers follow [Sem
 
 Translations: [Tiếng Việt](CHANGELOG.vi.md) · [中文](CHANGELOG.zh.md).
 
+## [1.2.3] - 2026-11-20
+
+### Changed
+
+- Ubuntu 26.04 now takes nginx 1.30.7 from nginx.org, like every other supported system, with the PageSpeed and ModSecurity modules of [mpn-packages](https://github.com/marixdev/mpn-packages/releases/tag/nginx-1.30.7-r2). It used to keep Ubuntu's nginx 1.28.3, which the panel holds with `apt-mark hold`; a held package gets no security updates, so a machine installed before 18 November stayed without the fix for CVE-2026-123007.
+
+### Upgrade notes
+
+- On Ubuntu 26.04, `mpn update` replaces Ubuntu's nginx, `nginx-module-pagespeed` (We-Amp) and `libnginx-mod-http-modsecurity` with nginx 1.30.7 from nginx.org and the modules built for it, in one apt run. The panel's sites and settings in `/etc/nginx` stay. If the new nginx fails `nginx -t`, the old packages and apt files are put back and the update stops; the files before the change are in `/var/backups/mpn-nginx-upgrade/old`.
+
 ## [1.2.2] - 2026-11-19
 
 ### Security

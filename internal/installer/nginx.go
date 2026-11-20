@@ -11,14 +11,14 @@ import (
 
 // One nginx version on every system. A dynamic module only loads into the exact nginx it was built for, and each distribution ships a
 // different nginx (1.18 to 1.28), so the panel uses nginx 1.30.7 from nginx.org and loads two modules built for that version by
-// github.com/marixdev/mpn-packages. Ubuntu 26.04 already ships 1.28.3, so it keeps the nginx and the packaged modules of the
-// distribution (see osinfo.Target.NginxOrg).
+// github.com/marixdev/mpn-packages. Ubuntu 26.04 kept the nginx and the packaged modules of the distribution until 1.2.2, when
+// nginx.org had no package for it (see osinfo.Target.NginxOrg and NginxUpgradeActions).
 const (
 	NginxVersion = "1.30.7"
 	// nginxSigningFPR is a fingerprint in the signing key nginx.org publishes; the key is refused when it is not there.
 	nginxSigningFPR = "573BFD6B3D8FBC641079A6ABABF5BD827BD9BF62"
 
-	modulesRelease = "nginx-1.30.7-r1"
+	modulesRelease = "nginx-1.30.7-r2"
 	// The repository was called mpn-nginx-modules until 2026-11-13; GitHub sends the old address to this one.
 	modulesBase = "https://github.com/marixdev/mpn-packages/releases/download/" + modulesRelease
 
@@ -26,8 +26,8 @@ const (
 	nginxKeyring        = "/usr/share/keyrings/nginx-archive-keyring.gpg"
 )
 
-// moduleRelease is the release that holds the PageSpeed module of a system: nginx-1.30.7-r1, for Debian, Ubuntu and the RHEL family.
-// The ModSecurity module of EL is in el-r2 (see elWAFActions).
+// moduleRelease is the release that holds the PageSpeed module of a system: nginx-1.30.7-r2, for Debian, Ubuntu and the RHEL family
+// (r1 has the same files without Ubuntu 26.04). The ModSecurity module of EL is in el-r2 (see elWAFActions).
 func moduleRelease(t osinfo.Target) string {
 	return modulesBase
 }
@@ -50,6 +50,8 @@ var moduleSums = map[string]map[string]string{
 		"noble-arm64":    "0047ca17f4121967102b80d94a179f784a63a2e4a3353e9032083dbad3099348",
 		"bookworm-arm64": "9b3fe9d9bfd4c8240cd86c888724d16f71ffa94c530e858c1169127cee8757e5",
 		"trixie-arm64":   "aca6de15b67c60d1faf988ecfb98fc7e471f197568243e3b03835fdc6ffd20cc",
+		"resolute":       "c0ecc16300523db52c2a38525a064c6b06e2c54af4a47a38b233097db6f2b897",
+		"resolute-arm64": "16629ba1d982c989f9ee501381b33c06b1996e390bde32f260dd1d6b981954d9",
 		// EL 9 and 10 (AlmaLinux, Rocky Linux, CentOS Stream).
 		"el9":        "57d7a1fef06296639e172f1467b6bf83d70fcaaec63506b923728458bef72279",
 		"el9-arm64":  "33e8912b276f8884177270cb8d39aa431842fb545b8f2e58f33509932890ef60",
@@ -65,6 +67,8 @@ var moduleSums = map[string]map[string]string{
 		"noble-arm64":    "3c6ccd7cabf5346430341eb1c66c002abbb5e335cc7253410a6664800481184d",
 		"bookworm-arm64": "fd25027fca704581455437d682ecd446fe58024e11e593e9cb30d355eec87940",
 		"trixie-arm64":   "8136051db3558796bfd69cb87fd2d250a8be64ab5e5651a8fcbba8d387dfa15d",
+		"resolute":       "b21ed356c1c4faabcad3d866731c795fd1ffe043fb6e867e29d7a73954f56858",
+		"resolute-arm64": "fa9ae5a80498bed519110919c49b813205046b10edb7e5879f36245d97ec8f4a",
 		// The ModSecurity module of EL comes from el-r2 with the rules (see elWAFActions and elSums).
 	},
 }
@@ -163,7 +167,7 @@ func nginxInstallActions(t osinfo.Target) []Action {
 }
 
 // pageSpeedStep makes the PageSpeed module available to nginx: from the build of this project on the systems with nginx.org, and
-// from the repository of We-Amp (built for the distribution's own nginx) on Ubuntu 26.04.
+// from the repository of We-Amp (built for the distribution's own nginx) on a system that keeps its distribution's nginx.
 func pageSpeedStep(t osinfo.Target) (Step, error) {
 	if !t.NginxOrg() {
 		return Step{"nginx pagespeed", []Action{
@@ -214,7 +218,10 @@ SecStatusEngine Off
 // WAFPackagesPlan installs what the web application firewall needs. nginxVersion is the version of the nginx that is installed now
 // ("" when unknown): the module built for nginx.org is used only on a machine that really runs that version, so a machine installed
 // before the version was fixed keeps getting the module of its distribution.
-func WAFPackagesPlan(t osinfo.Target, nginxVersion string) (Plan, error) {
+func WAFPackagesPlan(t osinfo.Target, nginxV string) (Plan, error) {
+	// nginxV is the whole output of "nginx -v": a distribution's nginx at the pinned version (Ubuntu 26.04 before 1.2.3 could have
+	// had one) still needs the distribution's module.
+	nginxVersion, distroNginx := NginxVersionOf(nginxV), DistroNginx(nginxV)
 	if t.EL() {
 		acts, err := elWAFActions(t)
 		if err != nil {
@@ -223,7 +230,7 @@ func WAFPackagesPlan(t osinfo.Target, nginxVersion string) (Plan, error) {
 		return Plan{{Name: "ModSecurity packages", Actions: acts}}, nil
 	}
 	update := Run("sh", "-c", "apt-get -o DPkg::Lock::Timeout=300 update || true")
-	if !t.NginxOrg() || nginxVersion != NginxVersion {
+	if !t.NginxOrg() || nginxVersion != NginxVersion || distroNginx {
 		return Plan{{Name: "ModSecurity packages", Actions: []Action{update, AptInstall("libnginx-mod-http-modsecurity", "modsecurity-crs")}}}, nil
 	}
 	mod, err := moduleActions(t, ModModSecurity)

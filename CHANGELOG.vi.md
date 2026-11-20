@@ -4,6 +4,16 @@ Mọi thay đổi đáng kể của Mini Panel được ghi ở đây. Số phi�
 
 Bản chính bằng tiếng Anh: [CHANGELOG.md](CHANGELOG.md). Có thêm bản [tiếng Trung](CHANGELOG.zh.md).
 
+## [1.2.3] - 2026-11-20
+
+### Thay đổi
+
+- Ubuntu 26.04 giờ lấy nginx 1.30.7 từ nginx.org như mọi hệ khác, cùng module PageSpeed và ModSecurity của [mpn-packages](https://github.com/marixdev/mpn-packages/releases/tag/nginx-1.30.7-r2). Trước đây máy giữ nginx 1.28.3 của Ubuntu và panel khoá nó bằng `apt-mark hold`. Gói đã khoá không nhận bản cập nhật bảo mật, nên máy cài trước ngày 18/11 vẫn chưa có bản vá CVE-2026-123007.
+
+### Ghi chú khi nâng cấp
+
+- Trên Ubuntu 26.04, `mpn update` thay nginx của Ubuntu, `nginx-module-pagespeed` (We-Amp) và `libnginx-mod-http-modsecurity` bằng nginx 1.30.7 từ nginx.org cùng các module build cho bản đó, trong một lần chạy apt. Các site và cài đặt của panel trong `/etc/nginx` được giữ nguyên. Nếu nginx mới không qua `nginx -t`, các gói và tệp apt cũ được đặt lại và việc cập nhật dừng; tệp trước khi đổi nằm ở `/var/backups/mpn-nginx-upgrade/old`.
+
 ## [1.2.2] - 2026-11-19
 
 ### Bảo mật

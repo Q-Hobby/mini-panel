@@ -67,7 +67,8 @@ func nginxUpgrade(apply bool) {
 	}
 	v, _ := exec.Command("nginx", "-v").CombinedOutput() // "nginx -v" prints on standard error
 	running := installer.NginxVersionOf(string(v))
-	if !installer.NginxUpgradeNeeded(t, running) {
+	distroBuild := installer.DistroNginx(string(v))
+	if !installer.NginxUpgradeNeeded(t, running, distroBuild) {
 		return
 	}
 	var mods []string
@@ -76,7 +77,7 @@ func nginxUpgrade(apply bool) {
 			mods = append(mods, kind)
 		}
 	}
-	acts, err := installer.NginxUpgradeActions(installer.NginxUpgradeInput{Target: t, Running: running, Modules: mods})
+	acts, err := installer.NginxUpgradeActions(installer.NginxUpgradeInput{Target: t, Running: running, Distro: distroBuild, Modules: mods})
 	fail(err)
 	plan := installer.Plan{{Name: "nginx " + running + " to " + installer.NginxVersion, Actions: acts}}
 	if !apply {

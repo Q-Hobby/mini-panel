@@ -15,16 +15,41 @@ import (
 // modules the machine loads are swapped for the ones built for the new version in the same step as the package, and a failed
 // "nginx -t" puts the old package, the old modules and the old pin back.
 
-// NginxUpgradeNeeded says whether the machine should move to NginxVersion: it takes nginx from nginx.org (every supported system
-// but Ubuntu 26.04, and the RHEL family) and runs another version.
-func NginxUpgradeNeeded(t osinfo.Target, running string) bool {
-	return (t.NginxOrg() || t.EL()) && running != "" && running != NginxVersion
+// NginxUpgradeNeeded says whether the machine should move to NginxVersion from nginx.org: it is a system that takes nginx from
+// there, and it runs another version or the nginx of its distribution. A machine on Ubuntu 26.04 installed before 1.2.3 runs the
+// nginx of Ubuntu, and is moved too.
+func NginxUpgradeNeeded(t osinfo.Target, running string, distroBuild bool) bool {
+	if !t.NginxOrg() || running == "" {
+		return false
+	}
+	if distroBuild {
+		// Only Ubuntu 26.04 had the distribution's nginx by design. A machine of another system with it was installed before the
+		// panel pinned one version, and keeps it, as WAFPackagesPlan does.
+		return t.ID == "ubuntu" && t.Version == "26.04"
+	}
+	return running != NginxVersion
 }
+
+// DistroNginx says whether the output of "nginx -v" is that of the distribution's nginx: Ubuntu and Debian name themselves after the
+// version ("nginx/1.28.3 (Ubuntu)"), nginx.org's package prints the bare version.
+func DistroNginx(nginxV string) bool {
+	return strings.Contains(nginxV, "(Ubuntu)") || strings.Contains(nginxV, "(Debian)")
+}
+
+// distroNginxPackages are the packages of the distribution's nginx and of the modules built for it that a machine on Ubuntu 26.04
+// of 1.2.2 or older has. nginx.org's package conflicts with nginx-common, and the modules depend on the ABI of that nginx, so all of
+// them leave in the same apt run that brings nginx.org's in. They are removed, not purged: their files in /etc/nginx stay.
+var distroNginxPackages = []string{"nginx", "nginx-common", "nginx-core", "nginx-full", "nginx-light", "nginx-extras",
+	"nginx-module-pagespeed", "libnginx-mod-http-modsecurity", "libnginx-mod-http-ndk"}
+
+// nginxAptFiles are the apt files the move changes, kept and put back as they were (or removed when they were not there).
+var nginxAptFiles = []string{"/etc/apt/sources.list.d/nginx.list", "/etc/apt/sources.list.d/modpagespeed.list", "/etc/apt/preferences.d/99-mpn-nginx"}
 
 // NginxUpgradeInput is what the machine has now.
 type NginxUpgradeInput struct {
 	Target  osinfo.Target
 	Running string   // the version "nginx -v" prints, such as 1.28.3
+	Distro  bool     // the running nginx is the distribution's (see DistroNginx), not nginx.org's
 	Modules []string // the kinds of module this machine loads now (ModPageSpeed, ModModSecurity)
 }
 
@@ -35,7 +60,7 @@ const nginxUpgradeBackup = "/var/backups/mpn-nginx-upgrade"
 // does not need it.
 func NginxUpgradeActions(in NginxUpgradeInput) ([]Action, error) {
 	t := in.Target
-	if !NginxUpgradeNeeded(t, in.Running) {
+	if !NginxUpgradeNeeded(t, in.Running, in.Distro) {
 		return nil, nil
 	}
 	if !validVersion(in.Running) {
@@ -56,13 +81,24 @@ func NginxUpgradeActions(in NginxUpgradeInput) ([]Action, error) {
 		staged := nginxUpgradeBackup + "/new/" + n.so
 		fetch = append(fetch, fetchScript(url, sum, staged))
 		put = append(put, "install -m 0644 -o root -g root "+staged+" "+dir+"/"+n.so)
+		if in.Distro {
+			// The distribution's snippet is a link into its package, gone once the package is; the panel's own snippet replaces it.
+			snip := nginxModulesEnabled + "/" + n.snippet
+			put = append(put, "rm -f "+snip, "printf '# Written by mpn.\\nload_module %s;\\n' "+dir+"/"+n.so+" > "+snip)
+			if kind == ModModSecurity {
+				// The module of nginx.org links libmodsecurity, which apt installed only for the package that is now gone; it must not be
+				// taken by an autoremove. modsecurity.conf is the one a WAF on nginx.org's nginx gets (WAFPackagesPlan).
+				// modsecurity.conf of the removed package stays (removed, not purged) and has the settings the rules need, as on bay.onl.
+				put = append(put, "apt-mark manual libmodsecurity3t64 >/dev/null 2>&1 || apt-mark manual libmodsecurity3 >/dev/null")
+			}
+		}
 	}
 
 	acts := []Action{Run("sh", "-c", "rm -rf "+nginxUpgradeBackup+"/new && install -d -m 0700 "+nginxUpgradeBackup+"/new")}
 	for _, f := range fetch {
 		acts = append(acts, Run("sh", "-c", f))
 	}
-	acts = append(acts, Run("sh", "-c", nginxUpgradeScript(t, in.Running, dir, put)))
+	acts = append(acts, Run("sh", "-c", nginxUpgradeScript(t, in.Running, in.Distro, dir, put)))
 	acts = append(acts, ReloadNginx())
 	return acts, nil
 }
@@ -107,35 +143,56 @@ func validVersion(v string) bool {
 	return true
 }
 
+// shQuote puts a script in single quotes for "sh -c".
+func shQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
+
 // nginxUpgradeScript keeps the old modules and pin, installs the new package and modules, and checks the configuration. When the
-// check fails, it installs the old package again with the old modules and pin, so the machine is left as it was.
-func nginxUpgradeScript(t osinfo.Target, old, dir string, put []string) string {
+// check fails, it installs the old packages again with the old modules and pin, so the machine is left as it was. distroBuild is set
+// when the machine runs the distribution's nginx: then nginx.org's repository is added and the distribution's packages leave.
+func nginxUpgradeScript(t osinfo.Target, old string, distroBuild bool, dir string, put []string) string {
 	b := nginxUpgradeBackup
 	// install is a list of commands, each run as "cmd || restore". They are not put in a block: a here-document inside an indented
 	// block would not find its end line, and distro.RefreshScript ends with "exit", which would end this whole script.
 	var install []string
-	var pin, unpin, reinstallOld, keepPin, restorePin string
+	var pin, unpin, reinstallOld, keep, restoreFiles string
 	if t.EL() {
 		unpin = "dnf -q versionlock delete nginx >/dev/null 2>&1 || true"
 		install = []string{"dnf -y -q install nginx-" + NginxVersion}
 		pin = "dnf -q versionlock add nginx"
 		reinstallOld = "dnf -y -q downgrade nginx-" + old + " || dnf -y -q install nginx-" + old
-		keepPin, restorePin = "true", "true"
+		keep, restoreFiles = "true", "true"
 	} else {
-		prefs := "/etc/apt/preferences.d/99-mpn-nginx"
-		_, newPrefs := nginxOrgSources(t)
+		list, newPrefs := nginxOrgSources(t)
 		apt := "DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=300 -o Dpkg::Options::=--force-confold install -y --allow-change-held-packages "
+		refresh := "sh -c " + shQuote(distro.RefreshScript())
 		unpin = "apt-mark unhold nginx >/dev/null"
 		// The new pin goes in before the install: the old one names the old version with a priority above 1000, and apt would keep it.
-		install = []string{
-			"printf '%s' '" + newPrefs + "' > " + prefs,
-			"sh -c '" + strings.ReplaceAll(distro.RefreshScript(), "'", `'\''`) + "'",
-			apt + "nginx=" + NginxVersion + "-1~" + t.Codename,
+		install = []string{"printf '%s' '" + newPrefs + "' > /etc/apt/preferences.d/99-mpn-nginx"}
+		newPkg := "nginx=" + NginxVersion + "-1~" + t.Codename
+		reinstallOld = apt + "--allow-downgrades nginx=" + old + "-1~" + t.Codename
+		if distroBuild {
+			install = append(install,
+				"sh -c "+shQuote(nginxOrgKeyScript),
+				"printf '%s' '"+list+"' > /etc/apt/sources.list.d/nginx.list",
+				// We-Amp's repository has the PageSpeed of the distribution's nginx, which the module of mpn-packages replaces.
+				"rm -f /etc/apt/sources.list.d/modpagespeed.list",
+			)
+			// "name-" in an apt install removes the package in the same run. nginx itself is not removed: it is the one installed.
+			newPkg += " $(awk -F= '$1 != \"nginx\" {print $1\"-\"}' $b/old/packages)"
+			reinstallOld = apt + "--allow-downgrades $(cat $b/old/packages)"
+		}
+		install = append(install, refresh, apt+newPkg)
+		if distroBuild {
+			// The distribution's links into its modules are left pointing at nothing, and its package's default site would answer on
+			// port 80 next to the panel's; the panel writes its own snippets (see put).
+			install = append(install, "find "+nginxModulesEnabled+" -xtype l -delete", "rm -f /etc/nginx/conf.d/default.conf")
 		}
 		pin = "apt-mark hold nginx >/dev/null"
-		reinstallOld = apt + "--allow-downgrades nginx=" + old + "-1~" + t.Codename
-		keepPin = "[ ! -f " + prefs + " ] || cp -p " + prefs + " " + b + "/99-mpn-nginx"
-		restorePin = "[ ! -f " + b + "/99-mpn-nginx ] || cp -p " + b + "/99-mpn-nginx " + prefs
+		keep = `install -d -m 0700 $b/old/apt
+dpkg-query -W -f='${Package}=${Version} ${db:Status-Status}\n' ` + strings.Join(distroNginxPackages, " ") + ` 2>/dev/null | awk '$2 == "installed" {print $1}' > $b/old/packages
+for f in ` + strings.Join(nginxAptFiles, " ") + `; do [ ! -e "$f" ] || cp -p "$f" $b/old/apt/; done`
+		restoreFiles = `for f in ` + strings.Join(nginxAptFiles, " ") + `; do if [ -e "$b/old/apt/${f##*/}" ]; then cp -p "$b/old/apt/${f##*/}" "$f"; else rm -f "$f"; fi; done
+  ` + refresh + ` || true`
 	}
 	for i, c := range install {
 		install[i] = c + " || restore"
@@ -145,10 +202,10 @@ b=` + b + `; dir=` + dir + `
 rm -rf $b/old; install -d -m 0700 $b/old
 cp -a /etc/nginx $b/old/etc-nginx
 for f in $dir/*.so; do [ -e "$f" ] && cp -p "$f" $b/old/; done
-` + keepPin + `
+` + keep + `
 restore() {
   echo "nginx ` + NginxVersion + ` did not pass its check; putting nginx ` + old + ` back" >&2
-  ` + restorePin + `
+  ` + restoreFiles + `
   ` + reinstallOld + ` || true
   for f in $b/old/*.so; do [ -e "$f" ] && cp -p "$f" $dir/; done
   rm -rf /etc/nginx && cp -a $b/old/etc-nginx /etc/nginx

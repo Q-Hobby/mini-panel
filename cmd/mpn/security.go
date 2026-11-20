@@ -131,7 +131,7 @@ func wafPackagesPlan() (installer.Plan, error) {
 	}
 	// "nginx -v" prints its version on standard error.
 	v, _ := exec.Command("nginx", "-v").CombinedOutput()
-	return installer.WAFPackagesPlan(t, installer.NginxVersionOf(string(v)))
+	return installer.WAFPackagesPlan(t, string(v))
 }
 
 // wafLoadPlan writes the rules and turns them on in nginx. It runs after the packages are installed, because which files the rule

@@ -11,6 +11,7 @@ func TestParse(t *testing.T) {
 		{"debian13", "ID=debian\nVERSION_ID=\"13\"\n", "trixie", false},
 		{"ubuntu2204", "ID=ubuntu\nVERSION_ID=\"22.04\"\n", "jammy", false},
 		{"ubuntu2604", "NAME=Ubuntu\nID=ubuntu\nVERSION_ID=\"26.04\"\n", "resolute", false},
+		{"ubuntu2404", "ID=ubuntu\nVERSION_ID=\"24.04\"\n", "noble", false},
 		{"debian11", "ID=debian\nVERSION_ID=\"11\"\n", "", true},
 		{"ubuntu2510", "ID=ubuntu\nVERSION_ID=\"25.10\"\n", "", true},
 		{"empty", "", "", true},
@@ -23,6 +24,18 @@ func TestParse(t *testing.T) {
 		if got.Codename != c.codename {
 			t.Errorf("%s: codename=%q want %q", c.name, got.Codename, c.codename)
 		}
+	}
+}
+
+// Every supported system takes nginx from nginx.org; Ubuntu 26.04 too since nginx.org packages it (1.30.7, November 2026).
+func TestEverySupportedSystemTakesNginxFromNginxOrg(t *testing.T) {
+	for _, s := range Supported() {
+		if !s.NginxOrg() {
+			t.Errorf("%s %s does not take nginx from nginx.org", s.ID, s.Version)
+		}
+	}
+	if (Target{}).NginxOrg() {
+		t.Error("a system the program does not know keeps the nginx of its distribution")
 	}
 }
 

@@ -17,7 +17,7 @@ func TestModuleFileNamesTheCPU(t *testing.T) {
 // Every system that takes nginx from nginx.org has a pinned module for both CPUs.
 func TestModuleSumsCoverBothCPUs(t *testing.T) {
 	for kind, sums := range moduleSums {
-		for _, c := range []string{"jammy", "noble", "bookworm", "trixie"} {
+		for _, c := range []string{"jammy", "noble", "resolute", "bookworm", "trixie"} {
 			for _, k := range []string{moduleKey(c, "amd64"), moduleKey(c, "arm64")} {
 				s := sums[k]
 				if len(s) != 64 || strings.Trim(s, "0123456789abcdef") != "" {

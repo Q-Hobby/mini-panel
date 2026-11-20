@@ -4,6 +4,16 @@ Mini Panel 的所有重要变更都记录在这里。版本号遵循[语义化�
 
 本文译自 [CHANGELOG.md](CHANGELOG.md)（英文）。另有[越南语版](CHANGELOG.vi.md)。
 
+## [1.2.3] - 2026-11-20
+
+### 变更
+
+- Ubuntu 26.04 现在与其他所有受支持的系统一样，从 nginx.org 获取 nginx 1.30.7，并使用 [mpn-packages](https://github.com/marixdev/mpn-packages/releases/tag/nginx-1.30.7-r2) 的 PageSpeed 和 ModSecurity 模块。此前它保留 Ubuntu 的 nginx 1.28.3，面板用 `apt-mark hold` 锁定该软件包；被锁定的软件包收不到安全更新，因此 11 月 18 日之前安装的机器一直没有 CVE-2026-123007 的修复。
+
+### 升级说明
+
+- 在 Ubuntu 26.04 上，`mpn update` 会在一次 apt 运行中把 Ubuntu 的 nginx、`nginx-module-pagespeed`（We-Amp）和 `libnginx-mod-http-modsecurity` 换成 nginx.org 的 nginx 1.30.7 及为其构建的模块。`/etc/nginx` 中面板的站点和设置保持不变。如果新 nginx 未通过 `nginx -t`，会恢复旧的软件包和 apt 文件，更新随即停止；变更前的文件保存在 `/var/backups/mpn-nginx-upgrade/old`。
+
 ## [1.2.2] - 2026-11-19
 
 ### 安全

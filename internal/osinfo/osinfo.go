@@ -59,15 +59,13 @@ func isEL(id string) bool { return id == "almalinux" || id == "rocky" || id == "
 // EL reports whether the system is of the RHEL family, whose packages come from dnf and whose layout differs from Debian's.
 func (t Target) EL() bool { return isEL(t.ID) }
 
-// NginxOrg reports whether this system gets its nginx from nginx.org at one fixed version. Every supported system does except
-// Ubuntu 26.04, whose own nginx is that same version and whose modules are packaged for it. A zero Target (a system the program
-// does not know) keeps the nginx of the distribution.
+// NginxOrg reports whether this system gets its nginx from nginx.org at one fixed version. Every supported system does (Ubuntu
+// 26.04 too since 1.2.3, once nginx.org packaged it; before that it kept the nginx of the distribution). A zero Target (a system
+// the program does not know) keeps the nginx of the distribution.
 func (t Target) NginxOrg() bool {
 	switch t.ID {
-	case "debian":
+	case "debian", "ubuntu":
 		return t.Codename != ""
-	case "ubuntu":
-		return t.Codename != "" && t.Version != "26.04"
 	}
 	return t.EL()
 }
