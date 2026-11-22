@@ -16,7 +16,7 @@ Bản chính bằng tiếng Anh: [CHANGELOG.md](CHANGELOG.md). Có thêm bản [
 ### Sửa lỗi
 
 - Terminal và Tệp của mọi website không chạy trên máy có SSH nghe cổng khác 22, như một số nhà cung cấp đặt sẵn. Panel luôn nối tới `127.0.0.1:22`. Giờ panel hỏi tiến trình root cổng mà sshd đang nghe, nhớ kết quả trong một phút, và hỏi lại khi kết nối bị từ chối, nên cổng đổi sau này cũng được nhận mà không cần khởi động lại.
-- Trên Ubuntu 24.04 trở lên, sshd chỉ được `ssh.socket` khởi động khi có kết nối tới, nên tường lửa không đọc được cổng SSH và mở cổng 22 thay cho cổng thật. Máy có SSH ở cổng khác 22 bị khóa mất SSH. Giờ panel đọc cả cổng của `ssh.socket`.
+- Trên Ubuntu 24.04 trở lên, sshd chỉ được `ssh.socket` khởi động khi có kết nối tới, nên tường lửa không đọc được cổng SSH và mở cổng 22 thay cho cổng thật. Máy có SSH ở cổng khác 22 bị khóa mất SSH. Giờ panel đọc cả cổng của `ssh.socket`, và chỉ khi socket đang chạy: systemd vẫn in địa chỉ của socket đang tắt, nên trên Debian cổng cũ (22) vẫn hiện và vẫn mở cạnh cổng mới sau khi đổi.
 - Trên AlmaLinux, Rocky Linux và CentOS Stream, bước SELinux luôn gán nhãn cổng 2612 cho webmail dù panel dùng cổng nào. Nếu cổng panel khác 2610, nginx không nghe được cổng của webmail. Nhãn giờ đi theo cổng panel, và khi bật webmail cổng của nó được gán nhãn lại.
 
 ### Thay đổi

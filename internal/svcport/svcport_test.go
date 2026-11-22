@@ -64,6 +64,22 @@ func TestSocketPortsReadsTheAddressesOfSSHSocket(t *testing.T) {
 	}
 }
 
+// systemd prints the addresses of ssh.socket also while it is off (Debian, or after it was turned off); those ports are not open.
+func TestASocketThatIsOffGivesNoPort(t *testing.T) {
+	for show, want := range map[string][]int{
+		"ActiveState=active\nListen=0.0.0.0:2222 (Stream)\nListen=[::]:2222 (Stream)": {2222},
+		"Listen=0.0.0.0:2222 (Stream)\nActiveState=active":                            {2222},
+		"Listen=[::]:22 (Stream)\nActiveState=inactive":                               nil,
+		"ActiveState=failed\nListen=0.0.0.0:2222 (Stream)":                            nil,
+		"ActiveState=inactive\nListen=":                                               nil,
+		"":                                                                            nil,
+	} {
+		if got := ActiveSocketPorts(show); !reflect.DeepEqual(got, want) {
+			t.Errorf("ActiveSocketPorts(%q) = %v, want %v", show, got, want)
+		}
+	}
+}
+
 func TestStatusNewAndInUse(t *testing.T) {
 	s := Status{SSH: []int{22, 2222}, SSHOld: []int{22}, Panel: 2610, PanelNew: 8443, PMA: 2611, Webmail: 2612}
 	if got := s.SSHNew(); !reflect.DeepEqual(got, []int{2222}) {

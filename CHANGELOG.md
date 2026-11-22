@@ -16,7 +16,7 @@ Translations: [Tiếng Việt](CHANGELOG.vi.md) · [中文](CHANGELOG.zh.md).
 ### Fixed
 
 - The terminal and the file manager of every website failed on a server whose SSH listens on a port other than 22, as some providers set it. The panel always dialled `127.0.0.1:22`. It now asks the root helper which port sshd listens on, keeps the answer for a minute, and asks again when a connection is refused, so a port changed later is found without a restart.
-- On Ubuntu 24.04 and newer, where sshd is started by `ssh.socket` only when a connection comes in, the firewall could not read the SSH port and kept port 22 open instead of the real one, which locked SSH out on a server whose SSH is not on port 22. The panel now reads the port from `ssh.socket` too.
+- On Ubuntu 24.04 and newer, where sshd is started by `ssh.socket` only when a connection comes in, the firewall could not read the SSH port and kept port 22 open instead of the real one, which locked SSH out on a server whose SSH is not on port 22. The panel now reads the port from `ssh.socket` too, and only while it runs: systemd also prints the addresses of a socket that is off, so on Debian the old port (22) stayed listed and open next to the new one after a change.
 - On AlmaLinux, Rocky Linux and CentOS Stream, the SELinux step labelled port 2612 for the web mail whatever the panel's port was. With a panel port other than 2610, nginx could not listen on the web mail's port. The label now follows the panel's port, and turning the web mail on labels its port again.
 
 ### Changed

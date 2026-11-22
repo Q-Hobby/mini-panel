@@ -177,6 +177,18 @@ func SocketPorts(show string) []int {
 	return slices.Compact(out)
 }
 
+// ActiveSocketPorts reads "systemctl show ssh.socket -p ActiveState -p Listen" and gives the ports only while the socket is active.
+// systemd prints the Listen addresses of a unit that is not running too: on Debian, where ssh.socket is installed but off, that is
+// port 22, and after a change of port the old one stayed in the list next to the new one.
+func ActiveSocketPorts(show string) []int {
+	for _, line := range strings.Split(show, "\n") {
+		if strings.TrimSpace(line) == "ActiveState=active" {
+			return SocketPorts(show)
+		}
+	}
+	return nil
+}
+
 // DialAddr is the address the panel connects to for SSH: the first of ports that something listens on, on the loopback address of
 // the family it listens on. ports are in the order to try (those sshd is known to listen on first). When nothing is found it falls
 // back to the loopback address and the first port, or 22.

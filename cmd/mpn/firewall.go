@@ -75,7 +75,7 @@ func lockedPorts() firewall.Locked {
 		}
 	}
 	// The addresses of ssh.socket, where systemd holds them: ss names systemd, not sshd, as the owner while no session is open.
-	l.SSH = append(l.SSH, svcport.SocketPorts(out(5*time.Second, "systemctl", "show", "ssh.socket", "-p", "Listen"))...)
+	l.SSH = append(l.SSH, svcport.ActiveSocketPorts(out(5*time.Second, "systemctl", "show", "ssh.socket", "-p", "ActiveState", "-p", "Listen"))...)
 	if len(l.SSH) == 0 {
 		l.SSH = []int{22}
 	}
