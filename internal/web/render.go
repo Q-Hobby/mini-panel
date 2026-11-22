@@ -8,6 +8,9 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strings"
+
+	"mpn/internal/svcport"
 )
 
 //go:embed templates/*.html
@@ -26,8 +29,8 @@ type page struct {
 var pages = map[string]page{}
 
 func init() {
-	for name, shell := range map[string]string{"login": "auth", "setup": "auth", "notfound": "auth", "sites": "base", "result": "base", "confirm": "base", "sitenew": "base", "site": "base", "fileedit": "base", "filerename": "base", "pmaopen": "base", "firewall": "base", "security": "base", "email": "base", "cloudlist": "base", "monitor": "base", "services": "base", "settings": "base", "update": "base", "emailcf": "base"} {
-		t := template.Must(template.New(name).Funcs(template.FuncMap{"T": T, "stamp": stampText, "asset": assetURL, "siteMenu": siteMenu, "dict": dict, "lang": func() string { return defaultLanguage }, "langInfo": func() language { return languageOf(defaultLanguage) }, "languages": func() []language { return languages }, "runtime": func(row siteRow) string { return row.Runtime() }}).
+	for name, shell := range map[string]string{"login": "auth", "setup": "auth", "notfound": "auth", "sites": "base", "result": "base", "confirm": "base", "sitenew": "base", "site": "base", "fileedit": "base", "filerename": "base", "pmaopen": "base", "firewall": "base", "security": "base", "email": "base", "cloudlist": "base", "monitor": "base", "services": "base", "settings": "base", "update": "base", "emailcf": "base", "activity": "base", "notify": "base"} {
+		t := template.Must(template.New(name).Funcs(template.FuncMap{"T": T, "stamp": stampText, "asset": assetURL, "join": strings.Join, "ports": svcport.Join, "portServices": func() []string { return svcport.Services }, "siteMenu": siteMenu, "dict": dict, "lang": func() string { return defaultLanguage }, "langInfo": func() language { return languageOf(defaultLanguage) }, "languages": func() []language { return languages }, "runtime": func(row siteRow) string { return row.Runtime() }}).
 			ParseFS(templateFS, append([]string{"templates/" + shell + ".html", "templates/" + name + ".html", "templates/language.html", "templates/footer.html"}, extraTemplates[name]...)...))
 		pages[name] = page{t, shell}
 	}
@@ -117,4 +120,4 @@ func (s *Server) assetRoutes(mux *http.ServeMux) {
 }
 
 // extraTemplates are files parsed together with a page, for parts of it that are too long to keep in one file.
-var extraTemplates = map[string][]string{"site": {"templates/files.html", "templates/filedialogs.html", "templates/fileicons.html", "templates/overview.html", "templates/siteheader.html", "templates/ssl.html", "templates/vhost.html", "templates/cron.html", "templates/logs.html", "templates/cloud.html", "templates/wordpress.html", "templates/siteemail.html"}, "fileedit": {"templates/fileicons.html"}}
+var extraTemplates = map[string][]string{"site": {"templates/files.html", "templates/filedialogs.html", "templates/fileicons.html", "templates/overview.html", "templates/siteheader.html", "templates/ssl.html", "templates/vhost.html", "templates/cron.html", "templates/logs.html", "templates/cloud.html", "templates/wordpress.html", "templates/siteemail.html", "templates/activityrows.html"}, "fileedit": {"templates/fileicons.html"}, "activity": {"templates/activityrows.html"}}

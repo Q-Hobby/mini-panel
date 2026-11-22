@@ -1,0 +1,52 @@
+package web
+
+// English text of the activity log.
+func init() {
+	for k, v := range map[string]string{
+		"page.activity":       "Activity log",
+		"nav.activity":        "Activity",
+		"tab.activity":        "Activity",
+		"audit.title":         "Activity log",
+		"audit.sub":           "Who did what in the panel, from which IP address, to which website. Newest first.",
+		"audit.tab.title":     "Activity on this website",
+		"audit.tab.sub":       "What was done to this website through the panel: from which IP address, when, and with what result.",
+		"audit.f.site":        "Website",
+		"audit.f.kind":        "Kind",
+		"audit.f.ip":          "IP address",
+		"audit.f.from":        "From",
+		"audit.f.to":          "To",
+		"audit.f.all":         "All",
+		"audit.f.show":        "Filter",
+		"audit.csv":           "Export CSV",
+		"audit.count":         "%d entries match the filter",
+		"audit.col.time":      "Time",
+		"audit.col.ip":        "IP",
+		"audit.col.site":      "Website",
+		"audit.col.action":    "Action",
+		"audit.col.result":    "Result",
+		"audit.ok":            "Succeeded",
+		"audit.fail":          "Failed",
+		"audit.danger":        "Important",
+		"audit.system":        "system",
+		"audit.empty":         "No entries match the filter yet.",
+		"audit.pages":         "Pages",
+		"audit.prev":          "Newer",
+		"audit.next":          "Older",
+		"audit.pageof":        "Page %d of %d",
+		"audit.err.filter":    "A value of the filter was not valid and was ignored.",
+		"audit.hint":          "Entries are kept for 90 days. Passwords, keys, certificates, file contents and what is typed in the terminal are never written. Only the root process writes the log, so nobody can change or delete it through the panel. The CSV export holds up to the 1000 newest entries that match the filter.",
+		"audit.kind.auth":     "Sign-in and account",
+		"audit.kind.site":     "Websites",
+		"audit.kind.files":    "File manager",
+		"audit.kind.terminal": "Terminal",
+		"audit.kind.database": "Databases",
+		"audit.kind.ssl":      "SSL",
+		"audit.kind.cron":     "Scheduled jobs",
+		"audit.kind.backup":   "Backups",
+		"audit.kind.mail":     "Email",
+		"audit.kind.security": "Security",
+		"audit.kind.system":   "System",
+	} {
+		en[k] = v
+	}
+}

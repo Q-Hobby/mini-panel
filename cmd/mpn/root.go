@@ -22,6 +22,7 @@ func runRoot(args []string) {
 	fs := flag.NewFlagSet("root", flag.ExitOnError)
 	sock := fs.String("socket", "/run/mpn/root.sock", "unix socket to listen on")
 	webUser := fs.String("web-user", "mpn-web", "the only account allowed to send requests; its group owns the socket")
+	db := fs.String("db", defaultDB, "the mpn database, which holds the activity log")
 	_ = fs.Parse(args)
 	if runtime.GOOS != "linux" || os.Geteuid() != 0 {
 		fail(errors.New("the root helper needs Linux and root"))
@@ -49,6 +50,7 @@ func runRoot(args []string) {
 		Allow:   ctl.AllowUIDs(uint32(uid)),
 		Peer:    ctl.PeerUID,
 		Timeout: 20 * time.Minute,
+		Audit:   auditWriter(*db),
 		Log: func(argv []string, err error) {
 			if err != nil {
 				log.Printf("failed: mpn %s: %v", strings.Join(argv, " "), err)
@@ -57,6 +59,7 @@ func runRoot(args []string) {
 			log.Printf("ok: mpn %s", strings.Join(argv, " "))
 		},
 	}
+	go pruneAuditDaily(*db)
 	log.Printf("listening on %s for user %s (uid %d)", *sock, *webUser, uid)
 	fail(srv.Serve(l))
 }

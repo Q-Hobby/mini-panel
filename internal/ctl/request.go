@@ -12,17 +12,20 @@ import (
 	"strconv"
 	"strings"
 
+	"mpn/internal/audit"
 	"mpn/internal/backup"
 	"mpn/internal/cloudprov"
 	"mpn/internal/cloudsync"
 	"mpn/internal/cron"
 	"mpn/internal/dbadmin"
 	"mpn/internal/firewall"
+	"mpn/internal/notify"
 	"mpn/internal/panelssl"
 	"mpn/internal/security"
 	"mpn/internal/services"
 	"mpn/internal/site"
 	"mpn/internal/sitelog"
+	"mpn/internal/svcport"
 	"mpn/internal/vhost"
 )
 
@@ -120,6 +123,27 @@ type Request struct {
 	Version string `json:"version,omitempty"`
 	// mail.cfadd: the API token of Cloudflare, made for the zone of MailDomain. It reaches mpn on standard input only and is not stored.
 	CFToken string `json:"cf_token,omitempty"`
+	// The activity log. Actor is the address of the person who sent the request; the web side sets it on every request, and the root
+	// helper writes it to the log with the operation. audit.note is an event only the web side sees (Event, one of audit.Events, with a
+	// Note and whether it Failed). audit.list reads the log: Site, AuditIP, AuditKind, From and To choose, Limit and Offset page.
+	// The Telegram alerts. Token (notify.hub) and Code (notify.agent, a pairing code) reach mpn on standard input only.
+	Lang      string        `json:"lang,omitempty"`
+	Token     string        `json:"token,omitempty"`
+	Code      string        `json:"code,omitempty"`
+	ChatID    int64         `json:"chat_id,omitempty"`
+	NodeID    int64         `json:"node_id,omitempty"`
+	HubURL    string        `json:"hub_url,omitempty"`
+	Rules     *notify.Rules `json:"rules,omitempty"`
+	Actor     string        `json:"actor,omitempty"`
+	Event     string        `json:"event,omitempty"`
+	Note      string        `json:"note,omitempty"`
+	Failed    bool          `json:"failed,omitempty"`
+	AuditIP   string        `json:"audit_ip,omitempty"`
+	AuditKind string        `json:"audit_kind,omitempty"`
+	From      string        `json:"from,omitempty"`
+	To        string        `json:"to,omitempty"`
+	Limit     int           `json:"limit,omitempty"`
+	Offset    int           `json:"offset,omitempty"`
 }
 
 // Stdin returns what the request sends to mpn on standard input: the password of site.access, the certificate and key of
@@ -132,6 +156,10 @@ func (r Request) Stdin() string {
 		return r.MailPassword + "\n"
 	case r.Op == "mail.cfadd":
 		return r.CFToken + "\n"
+	case r.Op == "notify.hub":
+		return r.Token + "\n"
+	case r.Op == "notify.agent":
+		return r.Code + "\n"
 	case r.Op == "site.vhostset":
 		return r.Vhost
 	case r.Op == "site.cronadd":
@@ -171,6 +199,7 @@ var writes = map[string]bool{
 	"site.vhostset": true, "site.vhostreset": true, "site.speed": true, // the nginx configuration of a site
 	"site.cronadd": true, "site.cronset": true, "site.crondel": true, // the scheduled jobs of a site
 	"firewall.enable": true, "firewall.disable": true, "firewall.add": true, "firewall.del": true,
+	"port.set": true, "port.finish": true, "port.cancel": true, // the ports of SSH, the panel, phpMyAdmin and the web mail
 	"security.waf": true, "security.f2b": true, "security.unban": true, // ModSecurity with the OWASP rules, and fail2ban
 	"security.cloudflare": true,                                                // the visitor's address from CF-Connecting-IP on Cloudflare's connections
 	"panel.ssl":           true, "panel.sslcustom": true, "panel.ssloff": true, // the certificate of the panel and of the database browser
@@ -185,11 +214,13 @@ var writes = map[string]bool{
 	"db.add":      true, "db.passwd": true, "db.remove": true,
 	"db.pma": true, "db.pmadrop": true, "db.pmaclean": true, // the temporary users of the database browser
 	"backup.create": true, "backup.restore": true, "backup.prune": true,
-	"services.control": true, "services.install": true, "site.webmail": true,
+	"services.control": true, "services.install": true, "services.remove": true, "site.webmail": true,
+	"notify.test": true, "notify.off": true, "notify.hub": true, "notify.chat": true, "notify.rules": true, "notify.noderules": true, // the Telegram alerts
+	"notify.pair": true, "notify.noderemove": true, "notify.agent": true,
 	"panel.update": true, // replaces the program with a signed release (mpn update), in the background
 }
 
-var reads = map[string]bool{"mail.cfdetect": true, "site.list": true, "site.info": true, "site.log": true, "services.status": true, "site.sslinfo": true, "site.vhost": true, "site.cronlist": true, "firewall.status": true, "security.status": true, "mail.status": true, "mail.records": true, "panel.sslinfo": true, "cloud.status": true, "cloud.list": true, "wp.status": true, "wp.search": true, "db.list": true, "backup.list": true, "panel.updatecheck": true}
+var reads = map[string]bool{"port.status": true, "port.sshaddr": true, "notify.status": true, "audit.list": true, "audit.note": true, "mail.cfdetect": true, "site.list": true, "site.info": true, "site.log": true, "services.status": true, "site.sslinfo": true, "site.vhost": true, "site.cronlist": true, "firewall.status": true, "security.status": true, "mail.status": true, "mail.records": true, "panel.sslinfo": true, "cloud.status": true, "cloud.list": true, "wp.status": true, "wp.search": true, "db.list": true, "backup.list": true, "panel.updatecheck": true}
 
 var versionRe = regexp.MustCompile(`^\d{1,4}\.\d{1,4}\.\d{1,4}$`)
 
@@ -238,6 +269,9 @@ func (r Request) Argv() ([]string, error) {
 	if !Known(r.Op) {
 		return nil, fmt.Errorf("unknown operation %q", r.Op)
 	}
+	if err := audit.ValidActor(r.Actor); err != nil {
+		return nil, err
+	}
 	switch r.Op {
 	case "site.list":
 		return []string{"site", "list", "-json"}, nil
@@ -284,6 +318,11 @@ func (r Request) Argv() ([]string, error) {
 			return nil, err
 		}
 		return []string{"services", "control", "-key=" + r.SvcKey, "-action=" + r.SvcAction, "-apply"}, nil
+	case "services.remove":
+		if err := services.ValidRemove(r.SvcKey); err != nil {
+			return nil, err
+		}
+		return []string{"services", "remove", "-key=" + r.SvcKey, "-apply"}, nil
 	case "services.install":
 		if err := services.ValidInstall(r.SvcKey); err != nil {
 			return nil, err
@@ -333,6 +372,20 @@ func (r Request) Argv() ([]string, error) {
 			return nil, fmt.Errorf("rule number %d is not valid", r.RuleID)
 		}
 		return []string{"firewall", "remove", "-id", strconv.FormatInt(r.RuleID, 10), "-apply"}, nil
+	case "port.status":
+		return []string{"port", "status", "-json"}, nil
+	case "port.sshaddr":
+		return []string{"port", "ssh-addr"}, nil
+	case "port.set":
+		if err := svcport.Valid(r.SvcKey, r.Port); err != nil {
+			return nil, err
+		}
+		return []string{"port", "set", "-service=" + r.SvcKey, "-port=" + strconv.Itoa(r.Port), "-apply"}, nil
+	case "port.finish", "port.cancel":
+		if !svcport.TwoStep(r.SvcKey) {
+			return nil, fmt.Errorf("only a change of ssh or of the panel is finished or cancelled")
+		}
+		return []string{"port", strings.TrimPrefix(r.Op, "port."), "-service=" + r.SvcKey, "-apply"}, nil
 	case "firewall.add":
 		rule, err := firewall.ValidRule(firewall.Rule{Action: r.FwAction, Proto: r.FwProto, Port: r.FwPort, Source: r.FwSource, Comment: r.FwComment})
 		if err != nil {
@@ -582,6 +635,13 @@ func (r Request) Argv() ([]string, error) {
 			return nil, fmt.Errorf("keep must be between 1 and 365")
 		}
 		return []string{"backup", "prune", "-site", r.Site, "-keep", strconv.Itoa(r.Keep), "-apply"}, nil
+	case "notify.status", "notify.test", "notify.off", "notify.hub", "notify.chat", "notify.rules", "notify.noderules", "notify.pair", "notify.noderemove", "notify.agent":
+		return r.notifyArgv()
+	case "audit.list":
+		return r.auditList()
+	case "audit.note":
+		// Written by the helper itself (see Server.Note); nothing is run.
+		return nil, r.validNote()
 	}
 	return r.restore() // the only operation left
 }

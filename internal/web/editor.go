@@ -128,6 +128,7 @@ func (s *Server) editSave(w http.ResponseWriter, r *http.Request, ss webauth.Ses
 		return
 	}
 	_ = newMtime
+	s.note(r, "files.save", fc.row.Name, "path=/"+fc.dir, false)
 	if c, err := r.Cookie(s.cookieName()); err == nil {
 		s.putFlash(c.Value, &result{Title: T("fm.saved"), OK: true})
 	}

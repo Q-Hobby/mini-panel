@@ -101,7 +101,7 @@ func (s *Server) cronAction(w http.ResponseWriter, r *http.Request, ss webauth.S
 		s.refuseTo(w, ss, back, T("cr.fail"), problem)
 		return
 	}
-	res := s.runText(T, T(title, row.Name), req)
+	res := s.runText(r, T, T(title, row.Name), req)
 	res.Back = back
 	s.finish(w, r, res)
 }

@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sync"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -54,6 +55,66 @@ func loadHostKeys(glob string) ([]ssh.PublicKey, []string, error) {
 		return nil, nil, fmt.Errorf("no SSH host key found at %s", glob)
 	}
 	return keys, algos, nil
+}
+
+// Auto is a Client whose address is found when it is needed: SSH may listen on a port other than 22, and the port may change while
+// the panel runs. Lookup says the address (the root helper knows it); the answer is kept for a minute, and a connection that cannot
+// be made asks again once, so a port changed a moment ago is found at once. Fixed, when it is an address, is used as it is.
+type Auto struct {
+	Client Client
+	Fixed  string // "" or "auto" to look the address up
+	Lookup func() (string, error)
+
+	mu   sync.Mutex
+	addr string
+	at   time.Time
+}
+
+// AutoTTL is how long an address that was looked up is kept.
+const AutoTTL = time.Minute
+
+func (a *Auto) address(fresh bool) string {
+	if a.Fixed != "" && a.Fixed != "auto" {
+		return a.Fixed
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if !fresh && a.addr != "" && time.Since(a.at) < AutoTTL {
+		return a.addr
+	}
+	if a.Lookup != nil {
+		if addr, err := a.Lookup(); err == nil {
+			if _, _, err := net.SplitHostPort(addr); err == nil {
+				a.addr, a.at = addr, time.Now()
+				return addr
+			}
+		}
+	}
+	if a.addr != "" {
+		return a.addr // the helper did not answer: the last address it gave
+	}
+	return "127.0.0.1:22"
+}
+
+// Dial logs in as user on the SSH server of this machine.
+func (a *Auto) Dial(user string) (*ssh.Client, error) { return a.DialTimeout(user, 0) }
+
+// DialTimeout is Dial with a timeout of its own; 0 keeps the Client's.
+func (a *Auto) DialTimeout(user string, timeout time.Duration) (*ssh.Client, error) {
+	c := a.Client
+	if timeout > 0 {
+		c.Timeout = timeout
+	}
+	c.Addr = a.address(false)
+	cli, err := c.Dial(user)
+	var op *net.OpError
+	if err != nil && errors.As(err, &op) && op.Op == "dial" { // nobody listens there: the port may have moved
+		if addr := a.address(true); addr != c.Addr {
+			c.Addr = addr
+			return c.Dial(user)
+		}
+	}
+	return cli, err
 }
 
 // Dial logs in as user and returns the connection. The caller closes it.

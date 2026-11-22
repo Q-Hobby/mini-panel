@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mpn/internal/audit"
 	"net"
 	"os"
 	"os/exec"
@@ -48,6 +49,9 @@ type Server struct {
 	// Log, when set, is told about every operation that ran: its arguments and whether it succeeded. Requests carry
 	// no passwords, and the output is never passed on, so this is safe to write to the journal.
 	Log func(argv []string, err error)
+	// Audit, when set, writes an entry of the activity log: one for every operation that changes the machine (see Audited), once it has
+	// run, and one for every audit.note of the web side. A failure to write it is the business of Audit; the answer does not change.
+	Audit func(audit.Entry)
 
 	mu sync.Mutex
 }
@@ -108,6 +112,13 @@ func (s *Server) handle(c net.Conn) {
 		reply(Response{Error: err.Error()})
 		return
 	}
+	if req.Op == "audit.note" {
+		if s.Audit != nil {
+			s.Audit(req.NoteEntry())
+		}
+		reply(Response{OK: true})
+		return
+	}
 	if IsWrite(req.Op) {
 		s.mu.Lock()
 		defer s.mu.Unlock()
@@ -117,6 +128,9 @@ func (s *Server) handle(c net.Conn) {
 	out, err := s.Runner.Run(ctx, argv, req.Stdin())
 	if s.Log != nil {
 		s.Log(argv, err)
+	}
+	if s.Audit != nil && Audited(req.Op) {
+		s.Audit(req.LogEntry(err))
 	}
 	if err != nil {
 		reply(Response{Output: out, Error: err.Error()})

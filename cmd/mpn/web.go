@@ -23,10 +23,12 @@ import (
 	"mpn/internal/dbadmin"
 	"mpn/internal/installer"
 	"mpn/internal/monitor"
+	"mpn/internal/notify"
 	"mpn/internal/panelkey"
 	"mpn/internal/panelssh"
 	"mpn/internal/panelssl"
 	"mpn/internal/site"
+	"mpn/internal/svcport"
 	"mpn/internal/unit"
 	"mpn/internal/web"
 	"mpn/internal/webauth"
@@ -66,7 +68,7 @@ func webServe(args []string) {
 	secure := fs.Bool("secure", false, "the panel is reached over HTTPS: Secure cookie and HSTS")
 	trustProxy := fs.Bool("trust-proxy", false, "take the client address from X-Real-IP, which nginx on this machine sets")
 	socket := fs.String("socket", "/run/mpn/root.sock", "unix socket of the root helper (mpn root)")
-	sshAddr := fs.String("ssh", "127.0.0.1:22", "SSH server of this machine, used to log in as a site's account with the panel's key")
+	sshAddr := fs.String("ssh", "auto", `SSH server of this machine, used to log in as a site's account with the panel's key; "auto" asks the root helper for the port sshd listens on`)
 	pmaPort := fs.Int("pma-port", 0, "port of the database browser (phpMyAdmin) on this machine; 0 when it is not installed")
 	pmaKeyFile := fs.String("pma-key", "/etc/mpn/pma/secret", "file with the key that the sign-on page of the database browser proves itself with")
 	_ = fs.Parse(args)
@@ -108,6 +110,22 @@ func webServe(args []string) {
 	_ = accountExists // passed to the server below
 	// The measurements are kept next to the account file: the one place the panel is allowed to write.
 	web.Version = version
+	// The terminal and the file manager reach SSH on the port sshd listens on, which the provider may have set to something other
+	// than 22. The panel cannot run sshd -T itself, so it asks the root helper, and asks again when the port may have changed.
+	sshDialer := &panelssh.Auto{
+		Client: panelssh.Client{KeyPath: panelkey.Default.Private, HostKeyGlob: "/etc/ssh/ssh_host_*_key.pub", Timeout: 8 * time.Second},
+		Fixed:  *sshAddr,
+		Lookup: func() (string, error) {
+			resp, err := ctl.Call(*socket, ctl.Request{Op: "port.sshaddr"}, 15*time.Second)
+			if err != nil {
+				return "", err
+			}
+			if !resp.OK {
+				return "", errors.New(resp.Error)
+			}
+			return strings.TrimSpace(resp.Output), nil
+		},
+	}
 	collector := monitor.New(monitor.ProcSource, filepath.Join(filepath.Dir(*account), "metrics.json"))
 	srv := &web.Server{
 		Mon:     collector,
@@ -119,6 +137,7 @@ func webServe(args []string) {
 		SetupKeyFile:  setupKeyPath(*account),
 		// The file of the panel's own name on port 443; when it is there, the database browser is opened under /pma/ of that name.
 		PanelDomainFile: installer.PanelDomainFile,
+		NotifySocket:    notify.Socket,
 		Sessions:        webauth.NewSessions(30*time.Minute, 12*time.Hour, 20),
 		Throttle:        webauth.NewThrottle(),
 		Hosts:           hosts,
@@ -127,7 +146,7 @@ func webServe(args []string) {
 		PMAKey:          pmaKey,
 		Secure:          *secure,
 		TrustProxy:      *trustProxy,
-		Dialer:          panelssh.Client{Addr: *sshAddr, KeyPath: panelkey.Default.Private, HostKeyGlob: "/etc/ssh/ssh_host_*_key.pub", Timeout: 8 * time.Second},
+		Dialer:          sshDialer,
 		InstalledPHP:    site.InstalledPHP,
 		NodeRoot:        unit.NodeRoot,
 		TermLog: func(event, site string, err error) {
@@ -138,7 +157,7 @@ func webServe(args []string) {
 			log.Printf("terminal %s: site %s", event, site)
 		},
 		LoginCheck: func(user string) error {
-			c, err := panelssh.Client{Addr: *sshAddr, KeyPath: panelkey.Default.Private, HostKeyGlob: "/etc/ssh/ssh_host_*_key.pub", Timeout: 4 * time.Second}.Dial(user)
+			c, err := sshDialer.DialTimeout(user, 4*time.Second)
 			if err != nil {
 				return err
 			}
@@ -265,8 +284,11 @@ func lastElem(p string) string {
 func webLoginTest(args []string) {
 	fs := flag.NewFlagSet("web login-test", flag.ExitOnError)
 	userName := fs.String("user", "", "account to log in as")
-	addr := fs.String("ssh", "127.0.0.1:22", "SSH server of this machine")
+	addr := fs.String("ssh", "", "SSH server of this machine; empty finds the port sshd listens on")
 	_ = fs.Parse(args)
+	if *addr == "" {
+		*addr = svcport.DialAddr(sshListenPorts(), svcport.Listeners(out(5*time.Second, "ss", "-ltnH")))
+	}
 	c, err := panelssh.Client{Addr: *addr, KeyPath: panelkey.Default.Private, HostKeyGlob: "/etc/ssh/ssh_host_*_key.pub"}.Dial(*userName)
 	fail(err)
 	defer c.Close()

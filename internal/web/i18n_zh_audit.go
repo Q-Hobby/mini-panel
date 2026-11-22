@@ -1,0 +1,52 @@
+package web
+
+// Simplified Chinese text of the activity log.
+func init() {
+	for k, v := range map[string]string{
+		"page.activity":       "操作日志",
+		"nav.activity":        "日志",
+		"tab.activity":        "操作",
+		"audit.title":         "操作日志",
+		"audit.sub":           "谁在面板中做了什么、来自哪个 IP、针对哪个网站。最新的在最上面。",
+		"audit.tab.title":     "此网站的操作",
+		"audit.tab.sub":       "通过面板对此网站进行的操作：来自哪个 IP、何时、结果如何。",
+		"audit.f.site":        "网站",
+		"audit.f.kind":        "类型",
+		"audit.f.ip":          "IP 地址",
+		"audit.f.from":        "开始日期",
+		"audit.f.to":          "结束日期",
+		"audit.f.all":         "全部",
+		"audit.f.show":        "筛选",
+		"audit.csv":           "导出 CSV",
+		"audit.count":         "%d 条记录符合筛选",
+		"audit.col.time":      "时间",
+		"audit.col.ip":        "IP",
+		"audit.col.site":      "网站",
+		"audit.col.action":    "操作",
+		"audit.col.result":    "结果",
+		"audit.ok":            "成功",
+		"audit.fail":          "失败",
+		"audit.danger":        "重要",
+		"audit.system":        "系统",
+		"audit.empty":         "暂无符合筛选的记录。",
+		"audit.pages":         "分页",
+		"audit.prev":          "较新",
+		"audit.next":          "较旧",
+		"audit.pageof":        "第 %d 页，共 %d 页",
+		"audit.err.filter":    "筛选中有一个值无效，已忽略。",
+		"audit.hint":          "记录保留 90 天。从不记录密码、密钥、证书、文件内容或终端中输入的内容。只有 root 进程写入日志，因此无法通过面板修改或删除。CSV 导出最多包含符合筛选的最新 1000 条。",
+		"audit.kind.auth":     "登录和账户",
+		"audit.kind.site":     "网站",
+		"audit.kind.files":    "文件管理",
+		"audit.kind.terminal": "终端",
+		"audit.kind.database": "数据库",
+		"audit.kind.ssl":      "SSL",
+		"audit.kind.cron":     "计划任务",
+		"audit.kind.backup":   "备份",
+		"audit.kind.mail":     "邮件",
+		"audit.kind.security": "安全",
+		"audit.kind.system":   "系统",
+	} {
+		zh[k] = v
+	}
+}

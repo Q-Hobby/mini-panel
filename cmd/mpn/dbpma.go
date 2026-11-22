@@ -58,12 +58,17 @@ func dbPmaDrop(args []string) {
 func dbPmaClean(args []string) {
 	fs := flag.NewFlagSet("db pmaclean", flag.ExitOnError)
 	apply := fs.Bool("apply", false, "drop them on the database server (Linux, root); otherwise only describe it")
+	all := fs.Bool("all", false, "drop every temporary user, also those still valid (when the database browser is removed)")
 	_ = fs.Parse(args)
 	if !*apply {
 		fmt.Println("would drop every temporary database-browser user whose time has passed\n(dry run: add -apply to do it)")
 		return
 	}
-	dropped, err := dbAdmin().CleanTemp(time.Now())
+	now := time.Now()
+	if *all {
+		now = now.Add(24 * time.Hour) // longer than any temporary user lives
+	}
+	dropped, err := dbAdmin().CleanTemp(now)
 	for _, n := range dropped {
 		fmt.Printf("dropped %s\n", n)
 	}

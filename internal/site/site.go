@@ -78,10 +78,13 @@ type Site struct {
 	// App is the application mpn installed in a PHP site, one of Apps, or "" for a site whose code the person brought. It decides
 	// which tabs and cards the site has (WordPress has a manager) and is set only once the installation has finished.
 	App string
+	// AppReady is set once the application finished its own setup in the browser (phpBB: an administrator exists in its database).
+	// Until then the vhost of phpBB serves its installer in /install/; from then on it does not, and the folder is removed.
+	AppReady bool
 }
 
 // Apps are the applications mpn can download and set up in a PHP site.
-var Apps = []string{"wordpress", "laravel", "codeigniter", "cakephp", "yii"}
+var Apps = []string{"wordpress", "laravel", "codeigniter", "cakephp", "yii", "phpbb"}
 
 // ValidApp reports whether id names an application of Apps.
 func ValidApp(id string) bool { return slices.Contains(Apps, id) }

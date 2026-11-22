@@ -22,7 +22,7 @@ func init() {
 		"fw.locked":          "Luôn mở",
 		"fw.locked.ssh":      "SSH",
 		"fw.locked.panel":    "Panel và phpMyAdmin",
-		"fw.locked.d":        "Hai nhóm cổng này không xóa được. Chúng được dò lại mỗi lần nạp luật, nên đổi cổng SSH cũng không làm bạn mất kết nối.",
+		"fw.locked.d":        "Hai nhóm cổng này không xóa được. Chúng được đọc từ sshd và nginx mỗi lần nạp luật, nên cổng SSH khác 22 do nhà cung cấp đặt cũng được mở ngay từ đầu.",
 		"fw.rules":           "Các luật",
 		"fw.rules.empty":     "Chưa có luật nào",
 		"fw.rules.empty.d":   "Bật tường lửa lần đầu sẽ tạo sẵn luật cho website.",

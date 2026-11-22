@@ -275,6 +275,14 @@ func InstalledScript(pkg string) string {
 	return "dpkg-query -W -f='${Status}' " + pkg + " 2>/dev/null | grep -q 'install ok installed' && echo yes || true"
 }
 
+// UninstallCommand removes packages but keeps their configuration files (apt remove; dnf keeps changed files as .rpmsave).
+func UninstallCommand(pkgs ...string) []string {
+	if IsEL() {
+		return append([]string{"dnf", "-y", "-q", "remove"}, pkgs...)
+	}
+	return append([]string{"env", "DEBIAN_FRONTEND=noninteractive", "apt-get", "-o", "DPkg::Lock::Timeout=300", "remove", "-y"}, pkgs...)
+}
+
 // RemoveCommand removes packages and their configuration.
 func RemoveCommand(pkgs ...string) []string {
 	if IsEL() {

@@ -120,7 +120,7 @@ func (s *Server) mailPage(w http.ResponseWriter, r *http.Request, ss webauth.Ses
 // mailAction runs one operation and shows the result, with the sentence that says what a known failure means.
 func (s *Server) mailAction(w http.ResponseWriter, r *http.Request, title string, req ctl.Request) {
 	T := translatorForWriter(w)
-	res := s.runText(T, T(title), req)
+	res := s.runText(r, T, T(title), req)
 	res.Back = mailBackOf(r)
 	if !res.OK {
 		switch {

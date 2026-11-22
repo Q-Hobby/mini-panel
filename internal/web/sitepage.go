@@ -16,7 +16,7 @@ type siteTabLink struct{ Key, Path string }
 
 // siteMenu is the menu of a site, most used first. SSH/SFTP is a card of the Overview, not a tab.
 func siteMenu(r siteRow) []siteTabLink {
-	menu := []siteTabLink{{"overview", ""}, {"files", "/files"}, {"databases", "/databases"}, {"email", "/email"}, {"ssl", "/ssl"}, {"backups", "/backups"}, {"cron", "/cron"}, {"logs", "/logs"}, {"terminal", "/terminal"}, {"vhost", "/vhost"}}
+	menu := []siteTabLink{{"overview", ""}, {"files", "/files"}, {"databases", "/databases"}, {"email", "/email"}, {"ssl", "/ssl"}, {"backups", "/backups"}, {"cron", "/cron"}, {"logs", "/logs"}, {"activity", "/activity"}, {"terminal", "/terminal"}, {"vhost", "/vhost"}}
 	if r.App == "wordpress" { // the manager comes right after the overview: it is what a WordPress site is mostly used through
 		menu = append([]siteTabLink{menu[0], {"wordpress", "/wordpress"}}, menu[1:]...)
 	}
@@ -24,10 +24,10 @@ func siteMenu(r siteRow) []siteTabLink {
 }
 
 func (s *Server) sitePagesOfOne(mux *http.ServeMux) {
-	for _, tab := range []string{"", "/ssl", "/vhost", "/databases", "/backups", "/cron", "/logs", "/email", "/wordpress"} {
+	for _, tab := range []string{"", "/ssl", "/vhost", "/databases", "/backups", "/cron", "/logs", "/activity", "/email", "/wordpress"} {
 		tab := tab
 		mux.HandleFunc("GET /sites/{name}"+tab, s.auth(func(w http.ResponseWriter, r *http.Request, ss webauth.Session) {
-			s.siteTab(w, r, ss, map[string]string{"": "overview", "/ssl": "ssl", "/vhost": "vhost", "/databases": "databases", "/backups": "backups", "/cron": "cron", "/logs": "logs", "/email": "email", "/wordpress": "wordpress"}[tab])
+			s.siteTab(w, r, ss, map[string]string{"": "overview", "/ssl": "ssl", "/vhost": "vhost", "/databases": "databases", "/backups": "backups", "/cron": "cron", "/logs": "logs", "/activity": "activity", "/email": "email", "/wordpress": "wordpress"}[tab])
 		}))
 	}
 	// SSH/SFTP moved into the Overview; the old address still works for bookmarks.
@@ -131,6 +131,8 @@ func (s *Server) siteTab(w http.ResponseWriter, r *http.Request, ss webauth.Sess
 		v.Cron = s.loadCronText(T, row)
 	case "logs":
 		v.Log = s.loadLogs(r, row)
+	case "activity":
+		v.Audit = s.loadAudit(w, r, "/sites/"+row.Name+"/activity", row.Name)
 	case "email":
 		v.SM = s.loadSiteMailText(T, row, r.Host)
 	case "databases":
@@ -166,7 +168,7 @@ func (s *Server) loadSSH(v *view, r *http.Request, row siteRow) {
 // loginResult runs the helper and, if it worked, adds the account and the new password to what the page shows once.
 func (s *Server) loginResult(r *http.Request, title string, row siteRow, password string) *result {
 	T := translatorForRequest(r)
-	res := s.runText(T, title, ctl.Request{Op: "site.access", Site: row.Name, Enable: true, Password: password})
+	res := s.runText(r, T, title, ctl.Request{Op: "site.access", Site: row.Name, Enable: true, Password: password})
 	res.Back = siteTab(row.Name, "")
 	if res.OK {
 		res.Output += "\n\n" + T("res.access", hostOnly(r.Host), row.User, password)
@@ -222,7 +224,7 @@ func (s *Server) sshAct(action string) func(http.ResponseWriter, *http.Request, 
 			return
 		}
 		if action == "disable" {
-			res := s.runText(T, T(a.act, row.Name), ctl.Request{Op: "site.access", Site: row.Name})
+			res := s.runText(r, T, T(a.act, row.Name), ctl.Request{Op: "site.access", Site: row.Name})
 			res.Back = siteTab(row.Name, "")
 			s.finish(w, r, res)
 			return
@@ -243,7 +245,7 @@ func (s *Server) sshPanelKey(w http.ResponseWriter, r *http.Request, ss webauth.
 		http.Error(w, msg, status)
 		return
 	}
-	res := s.runText(T, T("act.ssh.key", row.Name), ctl.Request{Op: "site.panelkey", Site: row.Name})
+	res := s.runText(r, T, T("act.ssh.key", row.Name), ctl.Request{Op: "site.panelkey", Site: row.Name})
 	res.Back = siteTab(row.Name, "")
 	s.finish(w, r, res)
 }

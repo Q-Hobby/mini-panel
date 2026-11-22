@@ -4,7 +4,20 @@ All notable changes to Mini Panel are recorded here. Version numbers follow [Sem
 
 Translations: [Tiếng Việt](CHANGELOG.vi.md) · [中文](CHANGELOG.zh.md).
 
-## [1.2.3] - 2026-11-20
+## [1.2.3] - 2026-11-22
+
+### Added
+
+- **Activity log.** A new Activity page records what was done through the panel: sign-ins, websites, files, databases, SSL, backups, the firewall and security, with the time, the address, the website and whether it worked. Each website has an Activity tab of its own. Filters by website, kind, address and dates; CSV export of up to 1000 lines. Entries are kept for 90 days and are written by the root helper only, so they cannot be changed or deleted through the panel. Passwords, keys, certificates, file contents and what is typed in the terminal are never written. See [Activity log](https://mpanel.biz/activity/).
+- **Telegram alerts.** The new Telegram page sends a message when a service stops, a website stops answering, CPU, memory or disk stays above a limit, someone signs in from a new address, fail2ban bans an address, a backup fails, a certificate is about to expire or a change marked Important is made in the activity log. One panel is the hub and holds the bot; other servers pair with it by a one-time code and report every minute, and a server that goes quiet for 3 minutes is reported. The alerts run in their own service, `mpn-notify`, so they go on while the panel restarts or updates. See [Telegram alerts](https://mpanel.biz/notify/).
+- **Service ports.** A new card on the Firewall page moves SSH, the panel, phpMyAdmin or the web mail to another port. SSH and the panel change in two steps: the new port opens next to the old one, and the old one closes only after you confirm the new one works; with no confirmation, the old port alone is restored after 10 minutes. The firewall rules and the fail2ban jails follow the change. `mpn port status|set|finish|cancel` does the same from SSH. See [Firewall › Service ports](https://mpanel.biz/firewall/#service-ports).
+- **phpBB.** phpBB 3.3.19 can be chosen as the code of a new PHP website. The panel downloads the official package, checks its SHA-256, creates the database and writes an nginx configuration made for phpBB (`app.php` routes, PATH_INFO, internal folders refused). You finish in phpBB's own installer at `/install/` with the database details the result page shows. Once an administrator exists, the panel closes `/install/` and removes the folder within a minute.
+
+### Fixed
+
+- The terminal and the file manager of every website failed on a server whose SSH listens on a port other than 22, as some providers set it. The panel always dialled `127.0.0.1:22`. It now asks the root helper which port sshd listens on, keeps the answer for a minute, and asks again when a connection is refused, so a port changed later is found without a restart.
+- On Ubuntu 24.04 and newer, where sshd is started by `ssh.socket` only when a connection comes in, the firewall could not read the SSH port and kept port 22 open instead of the real one, which locked SSH out on a server whose SSH is not on port 22. The panel now reads the port from `ssh.socket` too.
+- On AlmaLinux, Rocky Linux and CentOS Stream, the SELinux step labelled port 2612 for the web mail whatever the panel's port was. With a panel port other than 2610, nginx could not listen on the web mail's port. The label now follows the panel's port, and turning the web mail on labels its port again.
 
 ### Changed
 

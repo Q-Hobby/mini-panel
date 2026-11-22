@@ -167,6 +167,7 @@ func (s *Server) setupPost(w http.ResponseWriter, r *http.Request) {
 	if s.SetupKeyFile != "" {
 		_ = os.Remove(s.SetupKeyFile) // the link has done its work
 	}
+	s.note(r, "account.setup", "", "user="+user, false)
 	s.Throttle.Reset(key)
 	http.SetCookie(w, &http.Cookie{Name: setupCookie, Value: "", Path: "/setup", MaxAge: -1, Expires: time.Unix(1, 0), HttpOnly: true, Secure: s.Secure})
 	http.Redirect(w, r, "/login", http.StatusSeeOther)

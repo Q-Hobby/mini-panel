@@ -26,6 +26,11 @@ const (
 	ComposerPath     = "/usr/local/bin/composer.phar"
 	StageDir         = "/usr/local/share/mpn/stage"
 	WordPressID      = "wordpress"
+	PHPBBID          = "phpbb"
+	PHPBBVersion     = "3.3.19"
+	PHPBBURL         = "https://download.phpbb.com/pub/release/3.3/" + PHPBBVersion + "/phpBB-" + PHPBBVersion + ".zip"
+	PHPBBSHA256      = "1530e5cabf7ecc9ecfaed3fa13da79f9e8a514623beafababc8800b5ce966de9" // published on phpbb.com, checked on 2026-11-20
+	PHPBBTopDir      = "phpBB3"                                                           // the folder the package unpacks to
 	wpMemoryLimit    = "512M"
 	composerMemoryMB = 768
 )
@@ -33,8 +38,10 @@ const (
 // Recipe is one application.
 type Recipe struct {
 	ID, Label string
-	MinPHP    string            // the oldest PHP version it runs on
-	Package   string            // the Composer package it is made from; empty for WordPress, which WP-CLI downloads
+	MinPHP    string // the oldest PHP version it runs on
+	Package   string // the Composer package it is made from; empty for WordPress, which WP-CLI downloads
+	ZipURL    string // phpBB: the release package, compared with ZipSHA256 before it is unpacked
+	ZipSHA256 string
 	DocRoot   string            // the folder below htdocs that nginx serves; empty for htdocs itself
 	PHPIni    map[string]string // settings that suit it, applied to the site
 	Needs     []string          // PHP extensions beyond the ones every site has (package suffixes such as "intl")
@@ -46,6 +53,8 @@ var recipes = []Recipe{
 	{ID: "codeigniter", Label: "CodeIgniter 4", MinPHP: "8.1", Package: "codeigniter4/appstarter", DocRoot: "public", Needs: []string{"intl"}},
 	{ID: "cakephp", Label: "CakePHP", MinPHP: "8.1", Package: "cakephp/app", DocRoot: "webroot", Needs: []string{"intl"}},
 	{ID: "yii", Label: "Yii 2", MinPHP: "7.4", Package: "yiisoft/yii2-app-basic", DocRoot: "web"},
+	// phpBB has its own installer in the browser: mpn puts the files and the database in place, and the person finishes in /install/.
+	{ID: PHPBBID, Label: "phpBB", MinPHP: "7.2", ZipURL: PHPBBURL, ZipSHA256: PHPBBSHA256, PHPIni: map[string]string{"memory_limit": "256M"}},
 }
 
 // All lists the applications in the order a form shows them.

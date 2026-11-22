@@ -23,6 +23,7 @@ func panelMigrate(st *store.Store, apply bool) {
 		}
 	}
 	nginxUpgrade(apply)
+	notifyUnit(apply)
 	unit, err := os.ReadFile(installer.WebUnitFile)
 	if os.IsNotExist(err) {
 		fmt.Println("the web panel is not installed on this machine; nothing to do")
@@ -88,6 +89,31 @@ func nginxUpgrade(apply bool) {
 	requireLinuxRoot()
 	if err := runPlanQuiet(plan); err != nil {
 		fail(fmt.Errorf("moving nginx to %s failed: %w\nnginx %s and its modules were put back; the files before the change are in /var/backups/mpn-nginx-upgrade/old", installer.NginxVersion, err, running))
+	}
+}
+
+// notifyUnit writes the unit of the Telegram alerts (from 1.3.0) on a machine with the panel, and starts it. A unit that is already as
+// this version writes it is left alone, so an owner who stopped the service keeps it stopped.
+func notifyUnit(apply bool) {
+	if !fileExists(installer.WebUnitFile) {
+		return
+	}
+	if b, err := os.ReadFile(installer.NotifyUnitFile); err == nil && string(b) == installer.NotifyService {
+		return
+	}
+	plan := installer.Plan{{Name: "the Telegram alerts service", Actions: []installer.Action{
+		installer.WriteFile(installer.NotifyUnitFile, installer.NotifyService, 0o644),
+		installer.Run("systemctl", "daemon-reload"),
+		installer.Run("systemctl", "enable", "mpn-notify"),
+		installer.Run("systemctl", "restart", "mpn-notify"),
+	}}}
+	if !apply {
+		fmt.Print(plan)
+		return
+	}
+	requireLinuxRoot()
+	if err := runPlanQuiet(plan); err != nil {
+		fmt.Fprintf(os.Stderr, "the Telegram alerts service could not be installed: %v\n", err)
 	}
 }
 

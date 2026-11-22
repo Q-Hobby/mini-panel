@@ -4,7 +4,20 @@ Mọi thay đổi đáng kể của Mini Panel được ghi ở đây. Số phi�
 
 Bản chính bằng tiếng Anh: [CHANGELOG.md](CHANGELOG.md). Có thêm bản [tiếng Trung](CHANGELOG.zh.md).
 
-## [1.2.3] - 2026-11-20
+## [1.2.3] - 2026-11-22
+
+### Thêm mới
+
+- **Nhật ký hoạt động.** Trang Nhật ký mới ghi lại những gì đã làm qua panel: đăng nhập, website, tệp, cơ sở dữ liệu, SSL, sao lưu, tường lửa và bảo mật, kèm thời gian, địa chỉ IP, website và kết quả. Mỗi website có tab Nhật ký riêng. Lọc theo website, loại, địa chỉ và ngày; xuất CSV tối đa 1000 dòng. Nhật ký giữ 90 ngày và chỉ tiến trình root ghi, nên không sửa hay xóa được qua panel. Mật khẩu, khóa, chứng chỉ, nội dung tệp và những gì gõ trong terminal không bao giờ được ghi. Xem [Nhật ký hoạt động](https://mpanel.biz/vi/activity/).
+- **Cảnh báo Telegram.** Trang Telegram mới gửi tin khi một dịch vụ ngừng, website không trả lời, CPU, RAM hoặc ổ đĩa vượt ngưỡng, có người đăng nhập từ IP mới, fail2ban chặn một địa chỉ, sao lưu lỗi, chứng chỉ sắp hết hạn, hoặc có thay đổi được đánh dấu Quan trọng trong nhật ký. Một panel làm máy trung tâm và giữ bot; các máy khác ghép nối bằng mã dùng một lần và báo về mỗi phút, máy nào im lặng 3 phút sẽ bị báo. Cảnh báo chạy trong dịch vụ riêng `mpn-notify`, nên vẫn hoạt động khi panel khởi động lại hay cập nhật. Xem [Cảnh báo Telegram](https://mpanel.biz/vi/notify/).
+- **Cổng dịch vụ.** Thẻ mới trên trang Tường lửa chuyển SSH, panel, phpMyAdmin hoặc webmail sang cổng khác. SSH và panel đổi qua hai bước: cổng mới mở cạnh cổng cũ, cổng cũ chỉ đóng sau khi bạn xác nhận cổng mới dùng được; không xác nhận thì sau 10 phút hệ thống tự trả về cổng cũ. Luật tường lửa và jail fail2ban cập nhật theo. Lệnh `mpn port status|set|finish|cancel` làm việc tương tự qua SSH. Xem [Tường lửa › Cổng dịch vụ](https://mpanel.biz/vi/firewall/#cổng-dịch-vụ).
+- **phpBB.** Chọn được phpBB 3.3.19 làm mã nguồn cho website PHP mới. Panel tải bản chính thức, kiểm SHA-256, tạo cơ sở dữ liệu và viết cấu hình nginx riêng cho phpBB (định tuyến `app.php`, PATH_INFO, chặn các thư mục nội bộ). Bạn hoàn tất ở trình cài đặt `/install/` của phpBB với thông tin cơ sở dữ liệu ở trang kết quả. Khi đã có tài khoản quản trị, panel đóng `/install/` và xóa thư mục này trong vòng một phút.
+
+### Sửa lỗi
+
+- Terminal và Tệp của mọi website không chạy trên máy có SSH nghe cổng khác 22, như một số nhà cung cấp đặt sẵn. Panel luôn nối tới `127.0.0.1:22`. Giờ panel hỏi tiến trình root cổng mà sshd đang nghe, nhớ kết quả trong một phút, và hỏi lại khi kết nối bị từ chối, nên cổng đổi sau này cũng được nhận mà không cần khởi động lại.
+- Trên Ubuntu 24.04 trở lên, sshd chỉ được `ssh.socket` khởi động khi có kết nối tới, nên tường lửa không đọc được cổng SSH và mở cổng 22 thay cho cổng thật. Máy có SSH ở cổng khác 22 bị khóa mất SSH. Giờ panel đọc cả cổng của `ssh.socket`.
+- Trên AlmaLinux, Rocky Linux và CentOS Stream, bước SELinux luôn gán nhãn cổng 2612 cho webmail dù panel dùng cổng nào. Nếu cổng panel khác 2610, nginx không nghe được cổng của webmail. Nhãn giờ đi theo cổng panel, và khi bật webmail cổng của nó được gán nhãn lại.
 
 ### Thay đổi
 

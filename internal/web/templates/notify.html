@@ -1,0 +1,223 @@
+{{define "notifyrules"}}{{/* the form fields of a set of rules: . is notify.Rules */}}
+<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+  <div><label class="label" for="nr-cpu">{{T "ntf.r.cpu"}}</label><div class="flex items-center gap-2"><input id="nr-cpu" name="cpu" type="number" min="50" max="100" value="{{.CPU}}" class="field w-24"><span class="text-sm text-muted-foreground">% ·</span><input aria-label="{{T "ntf.r.minutes"}}" name="cpu_min" type="number" min="1" max="60" value="{{.CPUMin}}" class="field w-20"><span class="text-sm text-muted-foreground">{{T "ntf.r.min"}}</span></div></div>
+  <div><label class="label" for="nr-mem">{{T "ntf.r.mem"}}</label><div class="flex items-center gap-2"><input id="nr-mem" name="mem" type="number" min="50" max="100" value="{{.Mem}}" class="field w-24"><span class="text-sm text-muted-foreground">% ·</span><input aria-label="{{T "ntf.r.minutes"}}" name="mem_min" type="number" min="1" max="60" value="{{.MemMin}}" class="field w-20"><span class="text-sm text-muted-foreground">{{T "ntf.r.min"}}</span></div></div>
+  <div><label class="label" for="nr-disk">{{T "ntf.r.disk"}}</label><div class="flex items-center gap-2"><input id="nr-disk" name="disk" type="number" min="50" max="99" value="{{.Disk}}" class="field w-24"><span class="text-sm text-muted-foreground">%</span></div></div>
+  <div><label class="label" for="nr-cert">{{T "ntf.r.cert"}}</label><div class="flex items-center gap-2"><input id="nr-cert" name="cert_days" type="number" min="1" max="60" value="{{.CertDays}}" class="field w-24"><span class="text-sm text-muted-foreground">{{T "ntf.r.days"}}</span></div></div>
+  <div><label class="label" for="nr-repeat">{{T "ntf.r.repeat"}}</label><div class="flex items-center gap-2"><input id="nr-repeat" name="repeat" type="number" min="0" max="1440" value="{{.Repeat}}" class="field w-24"><span class="text-sm text-muted-foreground">{{T "ntf.r.min"}}</span></div><p class="hint">{{T "ntf.r.repeat.d"}}</p></div>
+</div>
+<fieldset class="mt-4">
+  <legend class="label">{{T "ntf.r.kinds"}}</legend>
+  <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+    <label class="flex items-start gap-2 text-sm"><input type="checkbox" name="resources" class="mt-0.5 size-4 rounded border-input text-primary focus:ring-ring"{{if .Resources}} checked{{end}}><span>{{T "ntf.k.resources"}}</span></label>
+    <label class="flex items-start gap-2 text-sm"><input type="checkbox" name="services" class="mt-0.5 size-4 rounded border-input text-primary focus:ring-ring"{{if .Services}} checked{{end}}><span>{{T "ntf.k.services"}}</span></label>
+    <label class="flex items-start gap-2 text-sm"><input type="checkbox" name="sites" class="mt-0.5 size-4 rounded border-input text-primary focus:ring-ring"{{if .Sites}} checked{{end}}><span>{{T "ntf.k.sites"}}</span></label>
+    <label class="flex items-start gap-2 text-sm"><input type="checkbox" name="security" class="mt-0.5 size-4 rounded border-input text-primary focus:ring-ring"{{if .Security}} checked{{end}}><span>{{T "ntf.k.security"}}</span></label>
+    <label class="flex items-start gap-2 text-sm"><input type="checkbox" name="ops" class="mt-0.5 size-4 rounded border-input text-primary focus:ring-ring"{{if .Ops}} checked{{end}}><span>{{T "ntf.k.ops"}}</span></label>
+    <label class="flex items-start gap-2 text-sm"><input type="checkbox" name="danger" class="mt-0.5 size-4 rounded border-input text-primary focus:ring-ring"{{if .Danger}} checked{{end}}><span>{{T "ntf.k.danger"}}</span></label>
+  </div>
+</fieldset>
+{{end}}
+
+{{define "content"}}
+{{$v := .Notify}}{{$s := $v.S}}
+<div class="mb-6">
+  <h1 class="h-page">{{T "ntf.title"}}</h1>
+  <p class="mt-1 text-sm text-muted-foreground">{{T "ntf.sub"}}</p>
+</div>
+{{if $v.Error}}<div role="alert" class="alert-error mb-6"><span>{{$v.Error}}</span></div>{{end}}
+{{if and $s.Role (not $s.Active)}}<div role="alert" class="alert-warn mb-6"><span>{{T "ntf.inactive"}}</span></div>{{end}}
+
+{{if not $s.Role}}
+<section class="card p-6">
+  <h2 class="h-section">{{T "ntf.start.title"}}</h2>
+  <p class="mt-1 text-sm text-muted-foreground">{{T "ntf.start.sub"}}</p>
+  <div class="mt-5 grid gap-4 lg:grid-cols-2">
+    <form method="post" action="/notify/hub" class="rounded-lg border border-border p-4" autocomplete="off">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <h3 class="text-sm font-semibold">{{T "ntf.hub.title"}}</h3>
+      <ol class="mt-2 list-decimal space-y-1 pl-5 text-sm text-muted-foreground">
+        <li>{{T "ntf.hub.step1"}}</li><li>{{T "ntf.hub.step2"}}</li><li>{{T "ntf.hub.step3"}}</li>
+      </ol>
+      <div class="mt-4 grid gap-3">
+        <div><label for="nh-token" class="label">{{T "ntf.token"}}</label><input id="nh-token" name="token" type="password" class="field font-mono" maxlength="100" placeholder="123456789:AA…" required spellcheck="false" autocomplete="off"></div>
+        <div class="grid gap-3 sm:grid-cols-2">
+          <div><label for="nh-name" class="label">{{T "ntf.name"}}</label><input id="nh-name" name="name" class="field font-mono" maxlength="40" value="{{$s.Name}}" required pattern="[A-Za-z0-9][A-Za-z0-9._\-]{0,39}"></div>
+          <div><label for="nh-lang" class="label">{{T "ntf.lang"}}</label><select id="nh-lang" name="lang" class="field"><option value="vi"{{if eq (lang) "vi"}} selected{{end}}>Tiếng Việt</option><option value="en"{{if eq (lang) "en"}} selected{{end}}>English</option><option value="zh"{{if eq (lang) "zh"}} selected{{end}}>中文</option></select></div>
+        </div>
+      </div>
+      <button class="btn-primary mt-4">{{T "ntf.hub.btn"}}</button>
+    </form>
+    <form method="post" action="/notify/agent" class="rounded-lg border border-border p-4" autocomplete="off">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <h3 class="text-sm font-semibold">{{T "ntf.agent.title"}}</h3>
+      <p class="mt-2 text-sm text-muted-foreground">{{T "ntf.agent.desc"}}</p>
+      <div class="mt-4 grid gap-3">
+        <div><label for="na-code" class="label">{{T "ntf.code"}}</label><textarea id="na-code" name="code" rows="3" class="field font-mono text-xs" required spellcheck="false" placeholder="mpn1.…"></textarea></div>
+        <div><label for="na-name" class="label">{{T "ntf.name"}}</label><input id="na-name" name="name" class="field font-mono" maxlength="40" value="{{$s.Name}}" required pattern="[A-Za-z0-9][A-Za-z0-9._\-]{0,39}"><p class="hint">{{T "ntf.agent.name.d"}}</p></div>
+      </div>
+      <button class="btn-primary mt-4">{{T "ntf.agent.btn"}}</button>
+    </form>
+  </div>
+</section>
+{{end}}
+
+{{if eq $s.Role "hub"}}
+<section class="card p-6">
+  <div class="flex flex-wrap items-start justify-between gap-3">
+    <div class="min-w-0">
+      <h2 class="h-section">{{T "ntf.bot.title"}}</h2>
+      <p class="mt-1 text-sm text-muted-foreground">{{T "ntf.bot.sub" $s.Name}}</p>
+    </div>
+    <span class="badge-teal">{{T "ntf.role.hub"}}</span>
+  </div>
+  {{if $s.BotError}}<p class="alert-error mt-4">{{T "ntf.bot.error" $s.BotError}}</p>{{end}}
+  <dl class="mt-5 grid gap-x-8 gap-y-4 text-sm sm:grid-cols-3">
+    <div><dt class="text-muted-foreground">{{T "ntf.bot"}}</dt><dd class="mt-0.5 font-medium">@{{$s.Bot}}</dd></div>
+    <div><dt class="text-muted-foreground">{{T "ntf.chat"}}</dt><dd class="mt-0.5 font-medium">{{if $s.ChatID}}{{$s.ChatTitle}}{{else}}<span class="badge-amber">{{T "ntf.chat.none"}}</span>{{end}}</dd></div>
+    <div><dt class="text-muted-foreground">{{T "ntf.lang"}}</dt><dd class="mt-0.5 font-medium">{{if eq $s.Lang "vi"}}Tiếng Việt{{else if eq $s.Lang "zh"}}中文{{else}}English{{end}}</dd></div>
+  </dl>
+  {{if not $s.ChatID}}
+  <div class="mt-5 rounded-lg border border-border p-4">
+    <h3 class="text-sm font-semibold">{{T "ntf.chat.title"}}</h3>
+    <p class="mt-1 text-sm text-muted-foreground">{{T "ntf.chat.desc" $s.Bot}}</p>
+    {{if $s.Chats}}
+    <form method="post" action="/notify/chat" class="mt-4 flex flex-wrap items-end gap-3">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <div class="min-w-64"><label for="nc-chat" class="label">{{T "ntf.chat"}}</label><select id="nc-chat" name="chat" class="field">{{range $s.Chats}}<option value="{{.ID}}">{{.Title}} ({{.ID}})</option>{{end}}</select></div>
+      <button class="btn-primary">{{T "ntf.chat.btn"}}</button>
+    </form>
+    {{else}}<p class="mt-3 text-sm">{{T "ntf.chat.wait"}} <a class="link" href="/notify">{{T "ntf.reload"}}</a></p>{{end}}
+  </div>
+  {{else}}
+  <form method="post" action="/notify/test" class="mt-5"><input type="hidden" name="csrf" value="{{.CSRF}}"><button class="btn-secondary">{{T "ntf.test"}}</button></form>
+  {{end}}
+  <details class="mt-5">
+    <summary class="cursor-pointer text-sm font-medium">{{T "ntf.bot.change"}}</summary>
+    <form method="post" action="/notify/hub" class="mt-3 grid max-w-xl gap-3" autocomplete="off">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <div><label for="nh2-token" class="label">{{T "ntf.token"}}</label><input id="nh2-token" name="token" type="password" class="field font-mono" maxlength="100" placeholder="{{T "ntf.token.keep"}}" spellcheck="false" autocomplete="off"></div>
+      <div class="grid gap-3 sm:grid-cols-2">
+        <div><label for="nh2-name" class="label">{{T "ntf.name"}}</label><input id="nh2-name" name="name" class="field font-mono" maxlength="40" value="{{$s.Name}}" required></div>
+        <div><label for="nh2-lang" class="label">{{T "ntf.lang"}}</label><select id="nh2-lang" name="lang" class="field"><option value="vi"{{if eq $s.Lang "vi"}} selected{{end}}>Tiếng Việt</option><option value="en"{{if eq $s.Lang "en"}} selected{{end}}>English</option><option value="zh"{{if eq $s.Lang "zh"}} selected{{end}}>中文</option></select></div>
+      </div>
+      <div><button class="btn-secondary">{{T "ntf.save"}}</button></div>
+      <p class="hint">{{T "ntf.bot.change.d"}}</p>
+    </form>
+  </details>
+</section>
+
+<section class="card mt-6 p-6">
+  <h2 class="h-section">{{T "ntf.nodes.title"}}</h2>
+  <p class="mt-1 text-sm text-muted-foreground">{{T "ntf.nodes.sub"}}</p>
+  <div class="table-wrap mt-4">
+    <table class="tbl">
+      <thead><tr><th>{{T "ntf.col.machine"}}</th><th>{{T "ntf.col.state"}}</th><th>CPU</th><th>RAM</th><th>{{T "ntf.col.disk"}}</th><th>{{T "ntf.col.version"}}</th><th>{{T "ntf.col.seen"}}</th><th></th></tr></thead>
+      <tbody>
+        <tr>
+          <td class="font-medium">{{$s.Name}} <span class="text-xs text-muted-foreground">({{T "ntf.role.hub"}})</span></td>
+          <td>{{if $s.Report.Alerts}}<span class="badge-rose">{{T "ntf.st.alert"}}</span>{{else}}<span class="badge-teal">{{T "ntf.st.ok"}}</span>{{end}}</td>
+          <td>{{printf "%.0f" $s.Report.Stats.CPU}}%</td><td>{{printf "%.0f" $s.Report.Stats.Mem}}%</td><td>{{printf "%.0f" $s.Report.Stats.Disk}}%</td>
+          <td class="font-mono text-xs">{{$s.Report.Version}}</td><td>–</td><td></td>
+        </tr>
+        {{range $v.Nodes}}<tr>
+          <td class="font-medium">{{.Name}}{{if .OwnRules}} <span class="badge-gray">{{T "ntf.ownrules"}}</span>{{end}}</td>
+          <td>{{if eq .State "lost"}}<span class="badge-rose">{{T "ntf.st.lost"}}</span>{{else if eq .State "alert"}}<span class="badge-rose">{{T "ntf.st.alert"}}</span>{{else if eq .State "new"}}<span class="badge-amber">{{T "ntf.st.new"}}</span>{{else}}<span class="badge-teal">{{T "ntf.st.ok"}}</span>{{end}}</td>
+          <td>{{printf "%.0f" .Report.Stats.CPU}}%</td><td>{{printf "%.0f" .Report.Stats.Mem}}%</td><td>{{printf "%.0f" .Report.Stats.Disk}}%</td>
+          <td class="font-mono text-xs">{{.Report.Version}}</td>
+          <td class="text-xs text-muted-foreground">{{if .Seen}}{{T "ntf.ago" .Seen}}{{else}}–{{end}}</td>
+          <td class="text-right"><a class="btn-sm" href="/notify?node={{.ID}}#node">{{T "ntf.node.edit"}}</a></td>
+        </tr>
+        {{if .Report.Alerts}}<tr><td colspan="8" class="pt-0 text-xs text-rose-700 dark:text-rose-400">{{range .Report.Alerts}}<div>↳ {{.}}</div>{{end}}</td></tr>{{end}}
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{if $s.Report.Alerts}}<div class="mt-2 text-xs text-rose-700 dark:text-rose-400">{{range $s.Report.Alerts}}<div>↳ {{$s.Name}}: {{.}}</div>{{end}}</div>{{end}}
+
+  {{if $v.Code}}
+  <div class="alert-warn mt-5" role="status">
+    <div class="w-full">
+      <p class="font-medium">{{T "ntf.code.made" $v.CodeFor}}</p>
+      <textarea readonly rows="3" class="field mt-2 w-full font-mono text-xs" aria-label="{{T "ntf.code"}}" onclick="this.select()">{{$v.Code}}</textarea>
+      <p class="mt-2 text-xs">{{T "ntf.code.d"}}</p>
+    </div>
+  </div>
+  {{end}}
+  <form method="post" action="/notify/pair" class="mt-5 rounded-lg border border-border p-4" autocomplete="off">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <h3 class="text-sm font-semibold">{{T "ntf.pair.title"}}</h3>
+    <p class="mt-1 text-sm text-muted-foreground">{{T "ntf.pair.desc"}}</p>
+    <div class="mt-4 flex flex-wrap items-end gap-3">
+      <div class="w-56"><label for="np-name" class="label">{{T "ntf.pair.name"}}</label><input id="np-name" name="name" class="field font-mono" maxlength="40" required pattern="[A-Za-z0-9][A-Za-z0-9._\-]{0,39}" placeholder="web-2"></div>
+      <div class="min-w-64 flex-1"><label for="np-url" class="label">{{T "ntf.pair.url"}}</label><input id="np-url" name="url" class="field font-mono" maxlength="260" required value="{{$v.HubURL}}" placeholder="https://1.2.3.4:2610" spellcheck="false"></div>
+      <button class="btn-primary">{{T "ntf.pair.btn"}}</button>
+    </div>
+    <p class="hint">{{T "ntf.pair.hint"}}</p>
+  </form>
+</section>
+
+{{with $v.EditNode}}
+<section id="node" class="card mt-6 p-6">
+  <h2 class="h-section">{{T "ntf.node.title" .Name}}</h2>
+  <p class="mt-1 text-sm text-muted-foreground">{{if .OwnRules}}{{T "ntf.node.own"}}{{else}}{{T "ntf.node.hub"}}{{end}}</p>
+  <form method="post" action="/notify/noderules" class="mt-5">
+    <input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="node" value="{{.ID}}">
+    {{template "notifyrules" .Rules}}
+    <div class="mt-4 flex flex-wrap gap-2">
+      <button class="btn-primary">{{T "ntf.node.save"}}</button>
+      {{if .OwnRules}}<button class="btn-secondary" name="reset" value="1">{{T "ntf.node.reset"}}</button>{{end}}
+    </div>
+  </form>
+  <form method="post" action="/notify/noderemove" class="mt-6 border-t border-border pt-4">
+    <input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="node" value="{{.ID}}">
+    <p class="text-sm text-muted-foreground">{{T "ntf.node.remove.d"}}</p>
+    <button class="btn-danger mt-3">{{T "ntf.node.remove"}}</button>
+  </form>
+</section>
+{{end}}
+
+<section class="card mt-6 p-6">
+  <h2 class="h-section">{{T "ntf.rules.title"}}</h2>
+  <p class="mt-1 text-sm text-muted-foreground">{{T "ntf.rules.sub"}}</p>
+  <form method="post" action="/notify/rules" class="mt-5">
+    <input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="lang" value="{{$s.Lang}}">
+    {{template "notifyrules" $s.Rules}}
+    <button class="btn-primary mt-4">{{T "ntf.save"}}</button>
+  </form>
+</section>
+{{end}}
+
+{{if eq $s.Role "agent"}}
+<section class="card p-6">
+  <div class="flex flex-wrap items-start justify-between gap-3">
+    <div class="min-w-0">
+      <h2 class="h-section">{{T "ntf.agent.on.title"}}</h2>
+      <p class="mt-1 text-sm text-muted-foreground">{{T "ntf.agent.on.sub" $s.Name}}</p>
+    </div>
+    <span class="badge-teal">{{T "ntf.role.agent"}}</span>
+  </div>
+  {{if $s.HubLost}}<p class="alert-error mt-4">{{T "ntf.agent.hublost"}}</p>{{else if $s.Agent.LastError}}<p class="alert-warn mt-4">{{T "ntf.agent.err" $s.Agent.LastError}}</p>{{end}}
+  <dl class="mt-5 grid gap-x-8 gap-y-4 text-sm sm:grid-cols-3">
+    <div><dt class="text-muted-foreground">{{T "ntf.agent.hub"}}</dt><dd class="mt-0.5 font-mono text-[13px] font-medium break-all">{{$s.HubURL}}</dd></div>
+    <div><dt class="text-muted-foreground">{{T "ntf.agent.last"}}</dt><dd class="mt-0.5 font-medium">{{if $s.Agent.LastOK}}{{$v.AgentLast}}{{else}}–{{end}}</dd></div>
+    <div><dt class="text-muted-foreground">{{T "ntf.col.state"}}</dt><dd class="mt-0.5">{{if $s.Report.Alerts}}<span class="badge-rose">{{T "ntf.st.alert"}}</span>{{else}}<span class="badge-teal">{{T "ntf.st.ok"}}</span>{{end}}</dd></div>
+  </dl>
+  {{if $s.Report.Alerts}}<div class="mt-3 text-sm text-rose-700 dark:text-rose-400">{{range $s.Report.Alerts}}<div>↳ {{.}}</div>{{end}}</div>{{end}}
+  <p class="hint">{{T "ntf.agent.rules"}}</p>
+  <form method="post" action="/notify/test" class="mt-4"><input type="hidden" name="csrf" value="{{.CSRF}}"><button class="btn-secondary">{{T "ntf.test"}}</button></form>
+</section>
+{{end}}
+
+{{if $s.Role}}
+<section class="card mt-6 p-6">
+  <h2 class="h-section">{{T "ntf.off.title"}}</h2>
+  <p class="mt-1 text-sm text-muted-foreground">{{if eq $s.Role "hub"}}{{T "ntf.off.hub"}}{{else}}{{T "ntf.off.agent"}}{{end}}</p>
+  <form method="post" action="/notify/off" class="mt-4 flex flex-wrap items-end gap-3">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <div><label for="no-confirm" class="label">{{T "ntf.off.confirm"}}</label><input id="no-confirm" name="confirm" class="field w-32 font-mono" autocomplete="off" required></div>
+    <button class="btn-danger">{{T "ntf.off.btn"}}</button>
+  </form>
+</section>
+{{end}}
+{{end}}

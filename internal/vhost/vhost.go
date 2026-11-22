@@ -58,6 +58,29 @@ var tpl = template.Must(template.New("vhost").Parse(`{{define "body"}}
 {{- if eq .Site.Kind "static"}}
     index index.html;
     location / { try_files $uri $uri/ =404; }
+{{- else if and (eq .Site.Kind "php") (eq .Site.App "phpbb")}}
+    index index.php index.html index.htm;
+    client_max_body_size {{.BodyMax}};
+{{- if not .Site.AppReady}}
+    # The installer of phpBB. mpn removes this block and the install folder once an administrator exists.
+    location ^~ /install/ {
+        try_files $uri $uri/ @rewrite_installapp;
+        location ~ \.php(/|$) {
+{{- template "phpbbfcgi" .}}
+        }
+    }
+    location @rewrite_installapp { rewrite ^(.*)$ /install/app.php/$1 last; }
+{{- end}}
+    # The internal folders and files of phpBB.
+    location ~ /(config|common\.php|composer\.(json|lock)|cache|files|images/avatars/upload|includes|(?<!ext/)phpbb(?!\w+)|store|vendor|vendor-ext) {
+        deny all;
+    }
+    # PHP with PATH_INFO, as in /app.php/feed.
+    location ~ \.php(/|$) {
+{{- template "phpbbfcgi" .}}
+    }
+    location / { try_files $uri $uri/ @rewriteapp; }
+    location @rewriteapp { rewrite ^(.*)$ /index.php/$1 last; }
 {{- else if eq .Site.Kind "php"}}
     index index.php index.html;
     client_max_body_size {{.BodyMax}};
@@ -81,6 +104,16 @@ var tpl = template.Must(template.New("vhost").Parse(`{{define "body"}}
         proxy_set_header Connection $connection_upgrade;
     }
 {{- end}}
+{{- end}}
+{{define "phpbbfcgi"}}
+            include fastcgi_params;
+            fastcgi_split_path_info ^(.+\.php)(/.*)$;
+            fastcgi_param PATH_INFO $fastcgi_path_info;
+            fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
+            fastcgi_param DOCUMENT_ROOT $realpath_root;
+            try_files $fastcgi_script_name =404;
+            fastcgi_pass unix:/run/php/{{.Site.Name}}.sock;
+            fastcgi_read_timeout {{.Timeout}}s;
 {{- end}}
 {{define "ssl"}}
     listen 443 ssl http2;

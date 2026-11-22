@@ -22,7 +22,7 @@ func init() {
 		"fw.locked":          "始终开放",
 		"fw.locked.ssh":      "SSH",
 		"fw.locked.panel":    "面板和 phpMyAdmin",
-		"fw.locked.d":        "这两组端口无法删除。每次加载规则时都会重新检测，因此更改 SSH 端口不会导致你失去连接。",
+		"fw.locked.d":        "这两组端口无法删除。每次加载规则时都会从 sshd 和 nginx 读取，因此服务商设置的非 22 SSH 端口从一开始就是开放的。",
 		"fw.rules":           "规则",
 		"fw.rules.empty":     "暂无规则",
 		"fw.rules.empty.d":   "首次启用防火墙时会为网站创建规则。",

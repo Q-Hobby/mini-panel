@@ -77,10 +77,14 @@ type Server struct {
 	// PanelDomainFile is the nginx file of the panel's name on port 443. When it exists and a request came to that plain address, the
 	// database browser is opened under /pma/ of the name and not on its own port.
 	PanelDomainFile string
-	cf              cfCache // what the name servers of mail domains said, for ten minutes
+	// NotifySocket is the socket of the mpn-notify service, which takes the reports of other machines when this panel is the hub of the
+	// Telegram alerts; "" switches /_notify/ off.
+	NotifySocket string
+	cf           cfCache // what the name servers of mail domains said, for ten minutes
 
-	flashMu sync.Mutex
-	flash   map[string]*result
+	flashMu   sync.Mutex
+	flash     map[string]*result
+	pairCodes map[string][2]string // a pairing code of the alerts, shown once, by session
 }
 
 const maxBody = 64 << 10
@@ -107,6 +111,9 @@ func (s *Server) Handler() http.Handler {
 	s.mailPages(mux)
 	s.mailCFPages(mux)
 	s.monitorPages(mux)
+	s.auditPages(mux)
+	s.notifyHubRoutes(mux)
+	s.notifyPages(mux)
 	s.servicesPages(mux)
 	s.pmaRoutes(mux)
 	s.backupPages(mux)
@@ -139,8 +146,10 @@ func (s *Server) guard(next http.Handler) http.Handler {
 		if s.Secure {
 			h.Set("Strict-Transport-Security", "max-age=31536000")
 		}
+		// Another machine sends its report here; it carries its own key and no cookie, so a forged form could do nothing with it.
+		machine := strings.HasPrefix(r.URL.Path, "/_notify/")
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
-			if !sameOrigin(r) {
+			if !machine && !sameOrigin(r) {
 				http.Error(w, "cross-site request refused", http.StatusForbidden)
 				return
 			}
@@ -269,6 +278,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	}
 	if !good {
 		s.Throttle.Fail(key)
+		s.note(r, "login.fail", "", "user="+auditUser(user, acct.User), true)
 		log.Printf("login failed from %s", s.clientAddr(r)) // read by the mpn-panel jail of fail2ban
 		s.render(w, http.StatusUnauthorized, view{Page: "login", Error: T("login.wrong")})
 		return
@@ -277,6 +287,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		s.render(w, http.StatusOK, view{Page: "login", Need2FA: true, Pending: s.twofa.newLogin(acct.User)})
 		return
 	}
+	s.note(r, "login.ok", "", "user="+acct.User, false)
 	s.Throttle.Reset(key)
 	s.startSession(w, r, acct.User)
 }
@@ -297,7 +308,8 @@ func (s *Server) startSession(w http.ResponseWriter, r *http.Request, user strin
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
-func (s *Server) logout(w http.ResponseWriter, r *http.Request, _ webauth.Session) {
+func (s *Server) logout(w http.ResponseWriter, r *http.Request, ss webauth.Session) {
+	s.note(r, "logout", "", "user="+ss.User, false)
 	if c, err := r.Cookie(s.cookieName()); err == nil {
 		s.Sessions.Delete(c.Value)
 	}
@@ -342,6 +354,8 @@ type view struct {
 	Need2FA                                     bool   // the sign-in page asks for the code of the app
 	Pending                                     string // the sign-in that waits for it
 	FW                                          *fwView
+	Audit                                       *auditView
+	Notify                                      *notifyView
 	Sec                                         *secView
 	Mail                                        *mailView
 	Cloud                                       *cloudView
@@ -378,6 +392,8 @@ func bodyLimit(p string) int64 {
 		return 256 << 10 // up to 48 KB of configuration; the encoding of a form can make every character three bytes long
 	case strings.HasPrefix(p, "/sites/") && strings.HasSuffix(p, "/ssl/custom"):
 		return 128 << 10 // three boxes of up to 16 KB, which the encoding of the form makes larger
+	case strings.HasPrefix(p, "/_notify/"):
+		return notifyRelayLimit
 	}
 	return maxBody
 }

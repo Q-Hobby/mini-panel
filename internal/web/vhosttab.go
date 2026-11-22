@@ -47,7 +47,7 @@ func (s *Server) vhostAction(w http.ResponseWriter, r *http.Request, ss webauth.
 		s.refuseTo(w, ss, back, T("vh.fail"), problem)
 		return
 	}
-	res := s.runText(T, T(title, row.Name), req)
+	res := s.runText(r, T, T(title, row.Name), req)
 	res.Back = back
 	if !res.OK {
 		// nginx -t says what is wrong in its own words, which the page shows below; the sentence on top says what happened to the site.

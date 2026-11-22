@@ -56,7 +56,7 @@ func (s *Server) securityPage(w http.ResponseWriter, r *http.Request, ss webauth
 // secAction runs one operation and shows the result, with the sentence that says what a known failure means.
 func (s *Server) secAction(w http.ResponseWriter, r *http.Request, ss webauth.Session, title string, req ctl.Request) {
 	T := translatorForWriter(w)
-	res := s.runText(T, T(title), req)
+	res := s.runText(r, T, T(title), req)
 	res.Back = "/security"
 	if !res.OK {
 		switch {

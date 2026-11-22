@@ -1,0 +1,71 @@
+{{/* The activity log: the filter, one page of entries and the links to the other pages. It is the page of all websites and the
+     Activity tab of one; on the tab the website is fixed and not part of the filter. */}}
+{{define "activityrows"}}
+{{$v := .Audit}}
+{{if $v.Error}}<div role="alert" class="alert-error mb-4"><span>{{$v.Error}}</span></div>{{end}}
+<section class="card p-6">
+  {{if .Site.Name}}<h2 class="h-section">{{T "audit.tab.title"}}</h2><p class="mt-1 text-sm text-muted-foreground">{{T "audit.tab.sub"}}</p>{{end}}
+  <form method="get" action="{{$v.Action}}" class="{{if .Site.Name}}mt-5 {{end}}grid gap-3 sm:grid-cols-2 lg:grid-cols-6 lg:items-end">
+    {{if not .Site.Name}}<div class="lg:col-span-1">
+      <label for="au-site" class="label">{{T "audit.f.site"}}</label>
+      <select id="au-site" name="site" class="field">
+        <option value="">{{T "audit.f.all"}}</option>
+        {{range .Sites}}<option value="{{.Name}}"{{if eq .Name $v.Filter.Site}} selected{{end}}>{{.Name}}</option>{{end}}
+      </select>
+    </div>{{end}}
+    <div>
+      <label for="au-kind" class="label">{{T "audit.f.kind"}}</label>
+      <select id="au-kind" name="kind" class="field">
+        <option value="">{{T "audit.f.all"}}</option>
+        {{range $v.Kinds}}<option value="{{.}}"{{if eq . $v.Filter.Kind}} selected{{end}}>{{T (printf "audit.kind.%s" .)}}</option>{{end}}
+      </select>
+    </div>
+    <div>
+      <label for="au-ip" class="label">{{T "audit.f.ip"}}</label>
+      <input id="au-ip" name="ip" value="{{$v.Filter.IP}}" class="field font-mono" maxlength="45" placeholder="1.2.3.4" autocomplete="off" spellcheck="false">
+    </div>
+    <div>
+      <label for="au-from" class="label">{{T "audit.f.from"}}</label>
+      <input id="au-from" name="from" type="date" value="{{$v.Filter.From}}" class="field">
+    </div>
+    <div>
+      <label for="au-to" class="label">{{T "audit.f.to"}}</label>
+      <input id="au-to" name="to" type="date" value="{{$v.Filter.To}}" class="field">
+    </div>
+    <div class="flex gap-2">
+      <button class="btn-primary">{{T "audit.f.show"}}</button>
+      <a class="btn-secondary" href="{{$v.CSVURL}}">{{T "audit.csv"}}</a>
+    </div>
+  </form>
+
+  <p class="mt-5 text-xs text-muted-foreground">{{T "audit.count" $v.Page.Total}}</p>
+  {{if $v.Rows}}
+  <div class="table-wrap mt-2">
+    <table class="tbl">
+      <thead><tr><th class="w-40">{{T "audit.col.time"}}</th><th>{{T "audit.col.ip"}}</th>{{if not .Site.Name}}<th>{{T "audit.col.site"}}</th>{{end}}<th>{{T "audit.col.action"}}</th><th class="w-24">{{T "audit.col.result"}}</th></tr></thead>
+      <tbody>
+      {{range $v.Rows}}<tr>
+        <td class="font-mono text-xs whitespace-nowrap">{{.When}}</td>
+        <td class="font-mono text-[13px]">{{if .IP}}<a class="hover:underline" href="{{$v.Action}}?ip={{.IP}}">{{.IP}}</a>{{else}}<span class="font-sans text-muted-foreground">{{T "audit.system"}}</span>{{end}}</td>
+        {{if not $.Site.Name}}<td>{{if .Site}}<a class="font-medium hover:underline" href="/sites/{{.Site}}/activity">{{.Site}}</a>{{else}}<span class="text-muted-foreground">—</span>{{end}}</td>{{end}}
+        <td>
+          <div class="flex flex-wrap items-center gap-2"><span class="font-medium">{{.Action}}</span>{{if .Danger}}<span class="badge-amber">{{T "audit.danger"}}</span>{{end}}</div>
+          {{if .Detail}}<div class="mt-0.5 font-mono text-xs break-all text-muted-foreground">{{.Detail}}</div>{{end}}
+          {{if .Error}}<div class="mt-0.5 text-xs break-all text-rose-700 dark:text-rose-400">{{.Error}}</div>{{end}}
+        </td>
+        <td>{{if .OK}}<span class="badge-teal">{{T "audit.ok"}}</span>{{else}}<span class="badge-rose">{{T "audit.fail"}}</span>{{end}}</td>
+      </tr>{{end}}
+      </tbody>
+    </table>
+  </div>
+  {{if gt $v.Pages 1}}<nav class="mt-4 flex items-center justify-between text-sm" aria-label="{{T "audit.pages"}}">
+    {{if $v.PrevURL}}<a class="btn-sm" href="{{$v.PrevURL}}">{{T "audit.prev"}}</a>{{else}}<span></span>{{end}}
+    <span class="text-muted-foreground">{{T "audit.pageof" $v.PageNo $v.Pages}}</span>
+    {{if $v.NextURL}}<a class="btn-sm" href="{{$v.NextURL}}">{{T "audit.next"}}</a>{{else}}<span></span>{{end}}
+  </nav>{{end}}
+  {{else}}
+  <p class="mt-3 rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">{{T "audit.empty"}}</p>
+  {{end}}
+  <p class="hint">{{T "audit.hint"}}</p>
+</section>
+{{end}}

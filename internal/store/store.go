@@ -119,6 +119,50 @@ CREATE TABLE mail_aliases (
 CREATE INDEX mail_aliases_domain ON mail_aliases(domain);`,
 	// The web mail under /webmail/ of a site's own name, switched on per site.
 	`ALTER TABLE sites ADD COLUMN webmail INTEGER NOT NULL DEFAULT 0;`,
+	// The activity log of the panel: what was done, from which address, to which website (see internal/audit). Only root writes it.
+	`CREATE TABLE audit_log (
+    id     INTEGER PRIMARY KEY,
+    at     INTEGER NOT NULL,
+    ip     TEXT NOT NULL DEFAULT '',
+    site   TEXT NOT NULL DEFAULT '',
+    op     TEXT NOT NULL,
+    kind   TEXT NOT NULL,
+    detail TEXT NOT NULL DEFAULT '',
+    ok     INTEGER NOT NULL,
+    error  TEXT NOT NULL DEFAULT '',
+    danger INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX audit_log_at ON audit_log(at);
+CREATE INDEX audit_log_site ON audit_log(site, at);`,
+	// Telegram alerts (internal/notify), on the hub: the machines that report to it (their keys as hashes only), the pairing codes not
+	// used yet (as hashes), the messages waiting to go out, and the chats that sent /start to the bot.
+	`CREATE TABLE notify_nodes (
+    id         INTEGER PRIMARY KEY,
+    name       TEXT NOT NULL UNIQUE,
+    key_hash   TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    last_seen  INTEGER NOT NULL DEFAULT 0,
+    report     TEXT NOT NULL DEFAULT '',
+    rules      TEXT NOT NULL DEFAULT '',
+    lost       INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE notify_pairs (
+    hash    TEXT PRIMARY KEY,
+    name    TEXT NOT NULL,
+    expires INTEGER NOT NULL
+);
+CREATE TABLE notify_outbox (
+    id         INTEGER PRIMARY KEY,
+    text       TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+);
+CREATE TABLE notify_chats (
+    id    INTEGER PRIMARY KEY,
+    title TEXT NOT NULL,
+    at    INTEGER NOT NULL
+);`,
+	// An application that finishes its setup in the browser (phpBB) has done so.
+	`ALTER TABLE sites ADD COLUMN app_ready INTEGER NOT NULL DEFAULT 0;`,
 }
 
 // noForeignKeys, at the start of a migration, runs it with foreign key enforcement off and checks them again afterwards.
@@ -368,6 +412,18 @@ func (s *Store) SetApp(name, app string) error {
 	return nil
 }
 
+// SetAppReady records that the application of a site finished its setup in the browser.
+func (s *Store) SetAppReady(name string, ready bool) error {
+	res, err := s.db.Exec(`UPDATE sites SET app_ready = ? WHERE name = ?`, ready, name)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("site %q: %w", name, ErrNotFound)
+	}
+	return nil
+}
+
 // SetVhost stores the nginx configuration a person wrote for a site, or "" to go back to the one mpn makes.
 func (s *Store) SetVhost(name, text string) error {
 	res, err := s.db.Exec(`UPDATE sites SET vhost = ? WHERE name = ?`, text, name)
@@ -462,7 +518,7 @@ func (s *Store) AllocNodePort(lo, hi int) (int, error) {
 
 // load reads sites matching where (a fixed string from this package, never user input) and their hostnames.
 func (s *Store) load(where string, args ...any) ([]site.Site, error) {
-	rows, err := s.db.Query(`SELECT id, name, kind, system_user, root_dir, php_version, app_port, node_version, py_version, entry, upstream, tls, ssl_mode, php_ini, mem_mb, www, allow_http, vhost, speed, webmail, app
+	rows, err := s.db.Query(`SELECT id, name, kind, system_user, root_dir, php_version, app_port, node_version, py_version, entry, upstream, tls, ssl_mode, php_ini, mem_mb, www, allow_http, vhost, speed, webmail, app, app_ready
 		FROM sites `+where+` ORDER BY name`, args...)
 	if err != nil {
 		return nil, err
@@ -475,7 +531,7 @@ func (s *Store) load(where string, args ...any) ([]site.Site, error) {
 		var kind string
 		var php, up, nodeVer, pyVer, entry, ini sql.NullString
 		var port sql.NullInt64
-		if err := rows.Scan(&id, &st.Name, &kind, &st.User, &st.Root, &php, &port, &nodeVer, &pyVer, &entry, &up, &st.TLS, &st.SSLMode, &ini, &st.MemMB, &st.WWW, &st.AllowHTTP, &st.CustomVhost, &st.Speed, &st.Webmail, &st.App); err != nil {
+		if err := rows.Scan(&id, &st.Name, &kind, &st.User, &st.Root, &php, &port, &nodeVer, &pyVer, &entry, &up, &st.TLS, &st.SSLMode, &ini, &st.MemMB, &st.WWW, &st.AllowHTTP, &st.CustomVhost, &st.Speed, &st.Webmail, &st.App, &st.AppReady); err != nil {
 			rows.Close()
 			return nil, err
 		}

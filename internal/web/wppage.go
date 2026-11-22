@@ -106,7 +106,7 @@ func (s *Server) wpRun(w http.ResponseWriter, r *http.Request, ss webauth.Sessio
 		s.refuseTo(w, ss, back, T("wp.fail"), T("wp.err.action"))
 		return
 	}
-	res := s.runText(T, T("act.wp."+action, slugOrCore(kind, slug), row.Name), ctl.Request{Op: "wp.run", Site: row.Name, WPKind: kind, WPAction: action, WPSlug: slug})
+	res := s.runText(r, T, T("act.wp."+action, slugOrCore(kind, slug), row.Name), ctl.Request{Op: "wp.run", Site: row.Name, WPKind: kind, WPAction: action, WPSlug: slug})
 	res.Back = back
 	if !res.OK {
 		res.Error = wpMessageText(T, res.Error)

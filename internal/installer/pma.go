@@ -219,8 +219,11 @@ header('Location: https://' . $host . $port . '/databases');
 // pmaNginx is the server of the browser. Every request is checked with the panel first (auth_request), PHP is run only
 // for the files it should run, and the folders of the program itself are closed. A visitor without a session is sent to
 // the panel's login page.
-func pmaNginx(panelPort int) string {
-	pp := fmt.Sprint(PMAPort(panelPort))
+func pmaNginx(panelPort int) string { return PMANginx(panelPort, PMAPort(panelPort)) }
+
+// PMANginx is the server of the browser on its own port; panelPort is where a visitor without a session is sent to sign in.
+func PMANginx(panelPort, pmaPort int) string {
+	pp := fmt.Sprint(pmaPort)
 	return `server {
     listen ` + pp + ` ssl http2;
     listen [::]:` + pp + ` ssl http2;
@@ -301,12 +304,23 @@ func pmaStep(o Options) (Step, error) {
 	if port == 0 {
 		port = 2610
 	}
-	if PMAPort(port) > 65535 || PMAPort(port) == PanelBackendPort {
-		return Step{}, fmt.Errorf("the database browser would need port %d: choose another panel port", PMAPort(port))
+	pp := pmaPortFor(o, port)
+	if pp < 1024 || pp > 65535 || pp == PanelBackendPort || pp == port {
+		return Step{}, fmt.Errorf("the database browser would need port %d: choose another port for it on the Firewall page", pp)
 	}
 	backend := PanelSocket
 	src := aptsrc.PHP(o.Target)
 	acts := []Action{}
+	if o.Target.EL() && !slices.Contains(o.PHPVersions, pmaPHP) {
+		// EL: PHP 8.3 from Remi, as the PHP step installs it. The Sury steps below are Debian's; they failed on AlmaLinux 9.8 when
+		// MariaDB was the first thing installed from the Services page (2026-11-21).
+		php, err := elPHPStep(Options{Target: o.Target, Profile: o.Profile, PHPVersions: []string{pmaPHP}})
+		if err != nil {
+			return Step{}, err
+		}
+		acts = append(acts, php.Actions...)
+		o.PHPVersions = append(o.PHPVersions, pmaPHP)
+	}
 	if !slices.Contains(o.PHPVersions, pmaPHP) { // the PHP step has not installed it
 		pkgs := distro.PHPPackages(pmaPHP, []string{"fpm", "cli", "mysql", "mbstring", "xml", "curl", "zip", "gd"})
 		if len(o.PHPVersions) == 0 { // nothing has set the repository up
@@ -328,7 +342,7 @@ func pmaStep(o Options) (Step, error) {
 		Run(distro.PHPFPMBinary(pmaPHP), "-t"),
 		Run("systemctl", "enable", distro.PHPService(pmaPHP)),
 		Run("systemctl", "restart", distro.PHPService(pmaPHP)),
-		WriteFile("/etc/nginx/conf.d/02-mpn-pma.conf", pmaNginx(port), 0o644),
+		WriteFile("/etc/nginx/conf.d/02-mpn-pma.conf", PMANginx(port, pp), 0o644),
 		Run("nginx", "-t"),
 		ReloadNginx(),
 		WriteFile("/etc/systemd/system/mpn-pma-clean.service", pmaCleanService, 0o644),

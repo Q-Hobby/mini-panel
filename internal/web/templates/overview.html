@@ -246,8 +246,10 @@
   <dl class="mt-4 grid gap-x-8 gap-y-3 text-sm sm:grid-cols-2">
     <div><dt class="text-muted-foreground">{{T "app.root"}}</dt><dd class="mt-0.5 font-mono text-[13px] font-medium break-all">{{.Site.Root}}</dd></div>
     {{if eq .Site.App "wordpress"}}<div><dt class="text-muted-foreground">{{T "app.cfg.label"}}</dt><dd class="mt-0.5 font-mono text-[13px] font-medium">wp-config.php</dd></div>
-    {{else if or (eq .Site.App "laravel") (eq .Site.App "codeigniter")}}<div><dt class="text-muted-foreground">{{T "app.cfg.label"}}</dt><dd class="mt-0.5 font-mono text-[13px] font-medium">.env</dd></div>{{end}}
+    {{else if or (eq .Site.App "laravel") (eq .Site.App "codeigniter")}}<div><dt class="text-muted-foreground">{{T "app.cfg.label"}}</dt><dd class="mt-0.5 font-mono text-[13px] font-medium">.env</dd></div>
+    {{else if eq .Site.App "phpbb"}}<div><dt class="text-muted-foreground">{{T "app.cfg.label"}}</dt><dd class="mt-0.5 font-mono text-[13px] font-medium">config.php</dd></div>{{end}}
   </dl>
+  {{if and (eq .Site.App "phpbb") (not .Site.AppReady)}}<div class="alert-warn mt-4 text-sm">{{T "app.phpbb.wait"}} <a class="font-medium underline" href="{{if .Site.TLS}}https{{else}}http{{end}}://{{index .Site.Hostnames 0}}/install/" target="_blank" rel="noopener">/install/</a></div>{{end}}
   {{if eq .Site.App "wordpress"}}<div class="mt-4"><a class="btn-secondary" href="/sites/{{.Site.Name}}/wordpress">{{T "app.manage"}}</a></div>{{end}}
 </section>
 {{else}}

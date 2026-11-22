@@ -56,6 +56,7 @@ var (
 )
 
 // WebmailPort is the port of the web mail: the second one after the panel's (the first is the database browser's).
+// A port chosen on the Firewall page replaces it (see WebmailNginxOn).
 func WebmailPort(panelPort int) int { return panelPort + 2 }
 
 // WebmailConfig is config.toml with two places for the secrets, which are made once on the machine and kept when the file is
@@ -159,9 +160,16 @@ MemoryMax=128M
 // Events from the server (new mail) are a long response, so buffering is off and the read timeout is long. The rules of the web
 // application firewall are left out: they would stop mail that contains code, which is ordinary in mail.
 func WebmailNginx(panelPort int) (string, error) {
-	p := WebmailPort(panelPort)
-	if panelPort < 1024 || p > 65535 || p == WebmailBackendPort {
-		return "", fmt.Errorf("the web mail would need port %d: choose another panel port", p)
+	if panelPort < 1024 {
+		return "", fmt.Errorf("the panel's port %d is not valid", panelPort)
+	}
+	return WebmailNginxOn(WebmailPort(panelPort))
+}
+
+// WebmailNginxOn is WebmailNginx on a port of its own.
+func WebmailNginxOn(p int) (string, error) {
+	if p < 1024 || p > 65535 || p == WebmailBackendPort {
+		return "", fmt.Errorf("the web mail would need port %d: choose another port for it on the Firewall page", p)
 	}
 	port := fmt.Sprint(p)
 	var b strings.Builder
@@ -185,7 +193,12 @@ const WebmailKnowsPrefix = true
 // WebmailPlan installs the web mail. panelPort is the port of the panel, which the web mail's port follows. It needs the panel (for
 // its nginx and its certificate); the caller checks that.
 func WebmailPlan(panelPort int, localBinary string) (installer.Plan, error) {
-	conf, err := WebmailNginx(panelPort)
+	return WebmailPlanOn(WebmailPort(panelPort), localBinary)
+}
+
+// WebmailPlanOn is WebmailPlan with the web mail on port.
+func WebmailPlanOn(port int, localBinary string) (installer.Plan, error) {
+	conf, err := WebmailNginxOn(port)
 	if err != nil {
 		return nil, err
 	}

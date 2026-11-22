@@ -54,6 +54,7 @@ var Defs = []Def{
 	{Key: "postfix", Label: "Postfix", Group: GroupService, Units: []string{"postfix.service"}, Actions: []string{Start, Stop, Restart, Reload}, Link: "/email", Absent: true},
 	{Key: "dovecot", Label: "Dovecot", Group: GroupService, Units: []string{"dovecot.service"}, Actions: []string{Start, Stop, Restart, Reload}, Link: "/email"},
 	{Key: "opendkim", Label: "OpenDKIM", Group: GroupService, Units: []string{"opendkim.service"}, Actions: []string{Start, Stop, Restart}, Link: "/email"},
+	{Key: "notify", Label: "Telegram (mpn-notify)", Group: GroupService, Units: []string{"mpn-notify.service"}, Actions: []string{Start, Stop, Restart}, Link: "/notify"},
 }
 
 // PhpMyAdmin is not a unit: it is files and a pool of PHP-FPM, installed by the panel and opened from the Databases tab.
@@ -118,6 +119,21 @@ func ValidInstall(key string) error {
 	return fmt.Errorf("the panel cannot install %q", key)
 }
 
+// ValidRemove reports whether key is something the panel removes: a PHP or Node.js version, the database browser or fail2ban. The
+// database servers and the mail programs are never removed from the panel: their data would go with them.
+func ValidRemove(key string) error {
+	if key == PhpMyAdmin || key == "fail2ban" {
+		return nil
+	}
+	if _, ok := phpVersion(key); ok {
+		return nil
+	}
+	if _, ok := nodeVersion(key); ok {
+		return nil
+	}
+	return fmt.Errorf("the panel does not remove %q", key)
+}
+
 // InstallVersion splits a "php-8.4" or "node-22" key into its kind and version.
 func InstallVersion(key string) (kind, version string, ok bool) {
 	if v, ok := phpVersion(key); ok {
@@ -154,6 +170,9 @@ type Item struct {
 	Version     string   `json:"version,omitempty"`
 	Needs       string   `json:"needs,omitempty"` // what is missing for an install: "panel", "database" or "legacyauth"
 	Link        string   `json:"link,omitempty"`  // the page that sets this program up
+	// Removable says the row has a button to remove it; UsedBy are the websites that keep it (the button is then off).
+	Removable bool     `json:"removable,omitempty"`
+	UsedBy    []string `json:"used_by,omitempty"`
 	// Series are the versions of a database server this machine's release can install, oldest first, and DefaultSeries the one chosen when
 	// none is asked for. Only the rows that install MariaDB or MySQL have them.
 	Series        []string `json:"series,omitempty"`
@@ -178,6 +197,7 @@ type Probe struct {
 	Exists   func(path string) bool
 	ReadFile func(path string) (string, error)
 	Series   func(engine string) []string // the versions of "mariadb" or "mysql" this release offers; nil leaves the choice out
+	Sites    []site.Site                  // the websites, for what keeps a version in use
 }
 
 // panelConf is the file the panel's nginx block is written to; it is there on every machine the panel was installed on.
@@ -257,5 +277,21 @@ func Status(p Probe) []Item {
 	} else {
 		pma.Installable = true
 	}
-	return append(out, pma)
+	out = append(out, pma)
+	for i := range out {
+		it := &out[i]
+		if !it.Installed || ValidRemove(it.Key) != nil {
+			continue
+		}
+		it.Removable = true
+		for _, s := range p.Sites {
+			if (it.Group == GroupPHP && s.Kind == site.PHP && PHPKey(s.PHPVersion) == it.Key) || (it.Group == GroupNode && s.Kind == site.Node && NodeKey(s.NodeVersion) == it.Key) {
+				it.UsedBy = append(it.UsedBy, s.Name)
+			}
+		}
+		if it.Key == PHPKey("8.3") && pma.Installed {
+			it.UsedBy = append(it.UsedBy, "phpMyAdmin")
+		}
+	}
+	return out
 }

@@ -185,6 +185,7 @@ func f2bPlan(ignore []string) (installer.Plan, error) {
 		{Name: "fail2ban jails", Actions: []installer.Action{
 			installer.WriteFile(security.PanelFilterFile, security.PanelFilter, 0o644),
 			installer.WriteFile(security.ModsecFilterFile, security.ModsecFilter, 0o644),
+			installer.Run("sh", "-c", "mkdir -p /var/log/mpn/sites && touch "+security.ModsecAnchorLog),
 			installer.WriteFile(security.JailFile, jail, 0o644),
 			installer.Run("fail2ban-client", "-t"),
 			installer.Run("systemctl", "enable", "fail2ban"),

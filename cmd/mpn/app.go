@@ -6,10 +6,14 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"path/filepath"
 	"slices"
+	"strconv"
+	"strings"
 
 	"mpn/internal/apps"
 	"mpn/internal/dbadmin"
+	"mpn/internal/installer"
 	"mpn/internal/provision"
 	"mpn/internal/site"
 	"mpn/internal/store"
@@ -17,7 +21,8 @@ import (
 )
 
 func appUsage() {
-	fmt.Fprintln(os.Stderr, "usage: mpn app install -site NAME -app wordpress|laravel|codeigniter|cakephp|yii [flags]   (add -h for the flags)")
+	fmt.Fprintln(os.Stderr, "usage: mpn app install -site NAME -app wordpress|laravel|codeigniter|cakephp|yii|phpbb [flags]   (add -h for the flags)")
+	fmt.Fprintln(os.Stderr, "       mpn app phpbb-check [-apply]   close the phpBB installer of sites that have an administrator")
 	os.Exit(2)
 }
 
@@ -154,6 +159,12 @@ func appInstall(args []string) {
 	fail(st.UpdateSite(cur))
 	fail(st.SetApp(cur.Name, recipe.ID))
 
+	if recipe.ID == apps.PHPBBID {
+		fail(runPlanQuiet(phpbbTimerPlan()))
+		fmt.Printf("\nphpBB %s is in %q. Finish the setup in the browser:\n\n  installer:  %s/install/\n  database:   MySQL with MySQLi, server localhost, port empty\n  name:       %s\n  user:       %s\n  password:   %s\n  prefix:     phpbb_ (or your own)\n\nOnce the administrator is made, the panel closes /install/ and removes the folder within a minute.\n",
+			apps.PHPBBVersion, s.Name, p.URL(), p.DBName, p.DBUser, p.DBPass)
+		return
+	}
 	fmt.Printf("\n%s is installed in %q\n\n  address:    %s\n  web root:   %s\n", recipe.Label, s.Name, p.URL(), cur.Root)
 	if recipe.NeedsDB() {
 		fmt.Printf("  database:   %s (user %s; the password is in %s)\n", p.DBName, p.DBUser, map[bool]string{true: "wp-config.php", false: ".env"}[recipe.ID == apps.WordPressID])
@@ -164,8 +175,105 @@ func appInstall(args []string) {
 }
 
 func runApp(args []string) {
-	if len(args) == 0 || args[0] != "install" {
+	switch {
+	case len(args) > 0 && args[0] == "install":
+		appInstall(args[1:])
+	case len(args) > 0 && args[0] == "phpbb-check":
+		phpbbCheck(args[1:])
+	default:
 		appUsage()
 	}
-	appInstall(args[1:])
+}
+
+const (
+	phpbbTimerName = "mpn-phpbb-check.timer"
+	phpbbService   = "[Unit]\nDescription=mpn closes the phpBB installer once an administrator exists\n\n[Service]\nType=oneshot\nExecStart=/usr/local/bin/mpn app phpbb-check -apply\n"
+	phpbbTimer     = "[Unit]\nDescription=mpn check of phpBB sites still being installed\n\n[Timer]\nOnBootSec=2min\nOnUnitActiveSec=1min\n\n[Install]\nWantedBy=timers.target\n"
+)
+
+// phpbbTimerPlan starts the check that closes the installer; it stops itself once no phpBB site waits.
+func phpbbTimerPlan() installer.Plan {
+	return installer.Plan{{Name: "phpBB check", Actions: []installer.Action{
+		installer.WriteFile("/etc/systemd/system/mpn-phpbb-check.service", phpbbService, 0o644),
+		installer.WriteFile("/etc/systemd/system/"+phpbbTimerName, phpbbTimer, 0o644),
+		installer.Run("systemctl", "daemon-reload"),
+		installer.Run("systemctl", "enable", "--now", phpbbTimerName),
+	}}}
+}
+
+// phpbbCheck looks at each phpBB site whose installer is still open. When its config.php says the installer finished and the database
+// has a founder, the vhost is written without the installer's location, the install folder is removed and the site is marked ready.
+func phpbbCheck(args []string) {
+	fs := flag.NewFlagSet("app phpbb-check", flag.ExitOnError)
+	db := fs.String("db", defaultDB, "database path")
+	apply := fs.Bool("apply", false, "close the installers that are done (Linux, root); otherwise only report")
+	_ = fs.Parse(args)
+	st := openStore(*db)
+	defer st.Close()
+	sites, err := st.ListSites()
+	fail(err)
+	waiting := 0
+	for _, s := range sites {
+		if s.App != apps.PHPBBID || s.AppReady {
+			continue
+		}
+		done, why := phpbbDone(s, *apply)
+		if !done {
+			waiting++
+			fmt.Printf("%s: waiting (%s)\n", s.Name, why)
+			continue
+		}
+		if !*apply {
+			fmt.Printf("%s: installed; -apply closes the installer\n", s.Name)
+			continue
+		}
+		cur := s
+		cur.AppReady = true
+		plan, err := provision.VhostPlan(cur, "")
+		if err == nil {
+			err = runPlanQuiet(append(plan, apps.PHPBBFinishPlan(cur)...))
+		}
+		if err == nil {
+			err = st.SetAppReady(s.Name, true)
+		}
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s: %v\n", s.Name, err)
+			waiting++
+			continue
+		}
+		fmt.Printf("%s: installed; the installer is closed and install/ removed\n", s.Name)
+	}
+	if waiting == 0 && *apply {
+		_ = runPlanQuiet(installer.Plan{{Name: "phpBB check", Actions: []installer.Action{installer.Run("sh", "-c", "systemctl disable --now "+phpbbTimerName+" 2>/dev/null || true")}}})
+	}
+}
+
+// phpbbDone reads config.php of the site and asks the database for a founder. Without apply the database is not asked.
+func phpbbDone(s site.Site, apply bool) (bool, string) {
+	b, err := os.ReadFile(filepath.Join(site.HtdocsOf(s.User), "config.php"))
+	if err != nil {
+		return false, "no config.php"
+	}
+	name, prefix, ok := apps.PHPBBConfig(string(b))
+	if !ok {
+		return false, "the installer has not finished"
+	}
+	if !dbadmin.OwnedBy(name, s.Name) {
+		return false, "config.php names a database of another site"
+	}
+	if !apply {
+		return true, ""
+	}
+	client, err := dbadmin.Detect()
+	if err != nil {
+		return false, err.Error()
+	}
+	out, err := dbadmin.ExecRunner{Client: client}.Run(apps.PHPBBFounderSQL(name, prefix))
+	if err != nil {
+		return false, "the tables are not there yet"
+	}
+	if n, _ := strconv.Atoi(strings.TrimSpace(out)); n < 1 {
+		return false, "no administrator yet"
+	}
+	return true, ""
 }

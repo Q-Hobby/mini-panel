@@ -42,6 +42,78 @@
   <p class="hint">{{T "fw.locked.d"}}</p>
 </section>
 
+<section class="card mt-4 p-6" id="ports">
+  <h2 class="h-section">{{T "port.title"}}</h2>
+  <p class="mt-1 text-sm text-muted-foreground">{{T "port.sub"}}</p>
+  {{if $f.PortErr}}<div role="alert" class="alert-error mt-4"><span>{{$f.PortErr}}</span></div>{{end}}
+  {{with $f.Ports}}{{$p := .}}
+  {{if .SSHOld}}
+  <div role="status" class="alert-warn mt-4 block">
+    <p class="font-semibold">{{T "port.wait.ssh" (ports $f.SSHNew) (ports .SSHOld)}}</p>
+    <p class="mt-1">{{T "port.wait.ssh.d" (ports $f.SSHNew)}}</p>
+    <div class="mt-3 flex flex-wrap gap-2">
+      <form method="post" action="/firewall/port/finish"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="service" value="ssh"><button class="btn-primary">{{T "port.finish.ssh" (ports .SSHOld)}}</button></form>
+      <form method="post" action="/firewall/port/cancel"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="service" value="ssh"><button class="btn-secondary">{{T "port.cancel"}}</button></form>
+    </div>
+  </div>
+  {{end}}
+  {{if .PanelNew}}
+  <div role="status" class="alert-warn mt-4 block">
+    <p class="font-semibold">{{T "port.wait.panel" .PanelNew .Panel}}</p>
+    {{if eq $f.OnPort .PanelNew}}
+    <p class="mt-1">{{T "port.wait.panel.here"}}</p>
+    <div class="mt-3 flex flex-wrap gap-2">
+      <form method="post" action="/firewall/port/finish"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="service" value="panel"><button class="btn-primary">{{T "port.finish.panel" .Panel}}</button></form>
+      <form method="post" action="/firewall/port/cancel"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="service" value="panel"><button class="btn-secondary">{{T "port.cancel"}}</button></form>
+    </div>
+    {{else}}
+    <p class="mt-1">{{T "port.wait.panel.go"}}</p>
+    <div class="mt-3 flex flex-wrap gap-2">
+      <a class="btn-primary" href="https://{{$f.Host}}:{{.PanelNew}}/firewall">{{T "port.open" .PanelNew}}</a>
+      <form method="post" action="/firewall/port/cancel"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="service" value="panel"><button class="btn-secondary">{{T "port.cancel"}}</button></form>
+    </div>
+    {{end}}
+  </div>
+  {{end}}
+  <div class="table-wrap mt-4">
+    <table class="tbl">
+      <thead><tr><th>{{T "port.col.svc"}}</th><th>{{T "port.col.now"}}</th><th>{{T "port.col.new"}}</th></tr></thead>
+      <tbody>
+      {{range $svc := portServices}}
+      <tr>
+        <td class="font-medium">{{T (printf "port.svc.%s" $svc)}}</td>
+        <td class="font-mono text-[13px]">
+          {{if eq $svc "ssh"}}{{range $p.SSH}}<span class="badge-teal font-mono mr-1">{{.}}</span>{{end}}
+          {{else if eq $svc "panel"}}<span class="badge-teal font-mono">{{$p.Panel}}</span>
+          {{else if eq $svc "pma"}}{{if $p.PMA}}<span class="badge-teal font-mono">{{$p.PMA}}</span>{{else}}<span class="font-sans text-muted-foreground">{{T "port.none"}}</span>{{end}}
+          {{else}}{{if $p.Webmail}}<span class="{{if $p.WebmailOn}}badge-teal{{else}}badge{{end}} font-mono">{{$p.Webmail}}</span>{{if not $p.WebmailOn}} <span class="font-sans text-xs text-muted-foreground">{{T "port.webmail.off"}}</span>{{end}}{{else}}<span class="font-sans text-muted-foreground">{{T "port.none"}}</span>{{end}}{{end}}
+        </td>
+        <td>
+          {{if and (eq $svc "pma") (not $p.PMA)}}<span class="text-sm text-muted-foreground">{{T "port.pma.none"}}</span>
+          {{else if and (eq $svc "webmail") (not $p.Webmail)}}<span class="text-sm text-muted-foreground">{{T "port.webmail.none"}}</span>
+          {{else if and (or (eq $svc "ssh") (eq $svc "panel")) (or $p.SSHOld $p.PanelNew)}}<span class="text-sm text-muted-foreground">{{T "port.busy"}}</span>
+          {{else}}
+          <form method="post" action="/firewall/port" class="flex flex-wrap items-center gap-2" autocomplete="off">
+            <input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="service" value="{{$svc}}">
+            <label class="sr-only" for="pt-{{$svc}}">{{T "port.col.new"}}</label>
+            <input id="pt-{{$svc}}" name="port" class="field w-28 font-mono" inputmode="numeric" pattern="[0-9]{1,5}" maxlength="5" required placeholder="{{if eq $svc "ssh"}}2222{{else}}8443{{end}}">
+            <button class="btn-secondary">{{T "port.change"}}</button>
+          </form>
+          {{end}}
+        </td>
+      </tr>
+      {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{end}}
+  <ul class="hint list-disc space-y-1 pl-5">
+    <li>{{T "port.hint.two"}}</li>
+    <li>{{T "port.hint.provider"}}</li>
+    <li>{{T "port.hint.detect"}}</li>
+  </ul>
+</section>
+
 <h2 class="h-section mt-8 mb-3">{{T "fw.rules"}}</h2>
 {{if $f.Rules}}
 <div class="table-wrap">

@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"strconv"
 	"strings"
 	"time"
 
@@ -166,6 +167,9 @@ func filesURL(site, dir string) string {
 
 // back sends the browser to the folder with a message that is shown once.
 func (s *Server) back(w http.ResponseWriter, r *http.Request, site, dir string, res *result) {
+	if r.Method == http.MethodPost {
+		s.noteFiles(r, site, dir, res, "")
+	}
 	if c, err := r.Cookie(s.cookieName()); err == nil {
 		s.putFlash(c.Value, res)
 	}
@@ -321,6 +325,7 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request, ss webauth.Sessi
 	// The page's script sends an upload with a progress bar and wants the outcome as data. It shows the message itself,
 	// so nothing is left over to be shown a second time.
 	if strings.Contains(r.Header.Get("Accept"), "application/json") {
+		s.noteFiles(r, fc.row.Name, fc.dir, &result{OK: len(lines) == 0, Error: strings.Join(lines, "; ")}, "count="+strconv.Itoa(done))
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")
 		_ = json.NewEncoder(w).Encode(map[string]any{"ok": len(lines) == 0, "done": done, "title": T("fm.uploaded", done), "errors": lines})

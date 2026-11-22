@@ -27,6 +27,8 @@ func (s *Server) servicesPages(mux *http.ServeMux) {
 	mux.HandleFunc("GET /services", s.auth(s.servicesPage))
 	// Stopping a service asks first: a stopped database or PHP-FPM takes the websites that use it down.
 	mux.HandleFunc("GET /services/{key}/stop", s.auth(s.serviceStopConfirm))
+	// Removing asks the name of the service typed again; the packages go, the settings stay.
+	mux.HandleFunc("GET /services/{key}/remove", s.auth(s.serviceRemoveConfirm))
 	mux.HandleFunc("POST /services/{key}/{action}", s.auth(s.serviceAct))
 }
 
@@ -60,6 +62,17 @@ func (s *Server) serviceStopConfirm(w http.ResponseWriter, r *http.Request, ss w
 		Button: T("svc.btn.stop"), Action: "/services/" + key + "/stop", NoType: true, Back: "/services"}})
 }
 
+func (s *Server) serviceRemoveConfirm(w http.ResponseWriter, r *http.Request, ss webauth.Session) {
+	T := translatorForWriter(w)
+	key := r.PathValue("key")
+	if services.ValidRemove(key) != nil {
+		http.NotFound(w, r)
+		return
+	}
+	s.show(w, http.StatusOK, ss, view{Page: "confirm", Confirm: &confirm{Title: T("svc.remove.title", key), Warning: T("svc.remove.warn"),
+		Button: T("svc.btn.remove"), Action: "/services/" + key + "/remove", Expect: key, Back: "/services"}})
+}
+
 // serviceAct installs a service, or starts, stops, restarts or reloads one. The key and the action are checked against the fixed list
 // before anything is sent to the helper, which checks them again.
 func (s *Server) serviceAct(w http.ResponseWriter, r *http.Request, ss webauth.Session) {
@@ -79,13 +92,23 @@ func (s *Server) serviceAct(w http.ResponseWriter, r *http.Request, ss webauth.S
 			req.DBSeries = series
 			title = T("act.svc.install.series", key, series)
 		}
+	case action == "remove" && services.ValidRemove(key) == nil:
+		if r.PostFormValue("confirm") != key {
+			s.refuseTo(w, ss, "/services", T("err.nothing"), T("err.confirm"))
+			return
+		}
+		req, title = ctl.Request{Op: "services.remove", SvcKey: key}, T("act.svc.remove", key)
+		res := s.runText(r, T, title, req)
+		res.Back = "/services"
+		s.finish(w, r, res)
+		return
 	case action != "install" && services.ValidAction(key, action) == nil:
 		req, title = ctl.Request{Op: "services.control", SvcKey: key, SvcAction: action}, T("act.svc."+action, key)
 	default:
 		s.refuseTo(w, ss, "/services", T("err.nothing"), T("svc.err.unknown"))
 		return
 	}
-	res := s.runText(T, title, req)
+	res := s.runText(r, T, title, req)
 	res.Back = "/services"
 	s.finish(w, r, res)
 }

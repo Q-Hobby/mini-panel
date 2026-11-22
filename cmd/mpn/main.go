@@ -12,7 +12,7 @@ import (
 var version = "1.2.0"
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: mpn <version|update|tune|plan|site|db|backup|cron|firewall|security|panel|cloud|app|wp|mail|services|root|web> [flags]")
+	fmt.Fprintln(os.Stderr, "usage: mpn <version|update|tune|plan|site|db|backup|cron|firewall|port|security|panel|cloud|app|wp|mail|services|audit|notify|root|web> [flags]")
 	os.Exit(2)
 }
 
@@ -37,6 +37,8 @@ func main() {
 		runCron(os.Args[2:])
 	case "firewall":
 		runFirewall(os.Args[2:])
+	case "port":
+		runPort(os.Args[2:])
 	case "security":
 		runSecurity(os.Args[2:])
 	case "panel":
@@ -51,6 +53,10 @@ func main() {
 		runMail(os.Args[2:])
 	case "services":
 		runServices(os.Args[2:])
+	case "notify":
+		runNotify(os.Args[2:])
+	case "audit":
+		runAudit(os.Args[2:])
 	case "root":
 		runRoot(os.Args[2:])
 	case "web":

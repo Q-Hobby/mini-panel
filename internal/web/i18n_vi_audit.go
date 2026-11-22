@@ -1,0 +1,52 @@
+package web
+
+// Vietnamese text of the activity log.
+func init() {
+	for k, v := range map[string]string{
+		"page.activity":       "Nhật ký hoạt động",
+		"nav.activity":        "Nhật ký",
+		"tab.activity":        "Hoạt động",
+		"audit.title":         "Nhật ký hoạt động",
+		"audit.sub":           "Ai đã làm gì trên panel, từ địa chỉ IP nào và với website nào. Mới nhất ở trên.",
+		"audit.tab.title":     "Hoạt động trên website này",
+		"audit.tab.sub":       "Các thao tác với website này qua panel: từ địa chỉ IP nào, lúc nào, kết quả ra sao.",
+		"audit.f.site":        "Website",
+		"audit.f.kind":        "Loại",
+		"audit.f.ip":          "Địa chỉ IP",
+		"audit.f.from":        "Từ ngày",
+		"audit.f.to":          "Đến ngày",
+		"audit.f.all":         "Tất cả",
+		"audit.f.show":        "Lọc",
+		"audit.csv":           "Xuất CSV",
+		"audit.count":         "%d mục khớp bộ lọc",
+		"audit.col.time":      "Thời gian",
+		"audit.col.ip":        "IP",
+		"audit.col.site":      "Website",
+		"audit.col.action":    "Thao tác",
+		"audit.col.result":    "Kết quả",
+		"audit.ok":            "Thành công",
+		"audit.fail":          "Thất bại",
+		"audit.danger":        "Quan trọng",
+		"audit.system":        "hệ thống",
+		"audit.empty":         "Chưa có mục nào khớp bộ lọc.",
+		"audit.pages":         "Trang",
+		"audit.prev":          "Mới hơn",
+		"audit.next":          "Cũ hơn",
+		"audit.pageof":        "Trang %d / %d",
+		"audit.err.filter":    "Một giá trị của bộ lọc không hợp lệ nên đã bỏ qua.",
+		"audit.hint":          "Nhật ký được giữ 90 ngày. Không bao giờ ghi mật khẩu, khóa, chứng chỉ, nội dung tệp hay lệnh gõ trong terminal. Chỉ tiến trình root ghi được, nên không ai sửa hay xóa được qua panel. Xuất CSV lấy tối đa 1000 mục mới nhất khớp bộ lọc.",
+		"audit.kind.auth":     "Đăng nhập và tài khoản",
+		"audit.kind.site":     "Website",
+		"audit.kind.files":    "Quản lý tệp",
+		"audit.kind.terminal": "Terminal",
+		"audit.kind.database": "Cơ sở dữ liệu",
+		"audit.kind.ssl":      "SSL",
+		"audit.kind.cron":     "Công việc định kỳ",
+		"audit.kind.backup":   "Sao lưu",
+		"audit.kind.mail":     "Email",
+		"audit.kind.security": "Bảo mật",
+		"audit.kind.system":   "Hệ thống",
+	} {
+		vi[k] = v
+	}
+}

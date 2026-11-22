@@ -9,10 +9,12 @@ import (
 	"strings"
 	"time"
 
+	"mpn/internal/distro"
 	"mpn/internal/firewall"
 	"mpn/internal/installer"
 	"mpn/internal/mail"
 	"mpn/internal/store"
+	"mpn/internal/svcport"
 )
 
 func mailUsage() {
@@ -47,8 +49,8 @@ func panelPortOf() int {
 func currentWebmail(st *store.Store) mailWebInfo {
 	v, _ := st.Setting(settingWebmail, "off")
 	w := mailWebInfo{On: v == "on", Installed: fileExists(mail.WebmailBinary)}
-	if pp := panelPortOf(); pp > 0 {
-		w.Port = mail.WebmailPort(pp)
+	if panelPortOf() > 0 {
+		w.Port = webmailPortOf(st)
 	}
 	if in := frontInput(st); in.Domain != "" && in.Webmail { // the panel's name serves it under /webmail/, with no port
 		w.URL = "https://" + in.Domain + "/webmail/"
@@ -359,19 +361,23 @@ func runMail(args []string) {
 			fmt.Println("the web mail is off; its settings are kept")
 			return
 		}
-		plan, err := mail.WebmailPlan(pp, *binary)
+		wp := webmailPortOf(st)
+		plan, err := mail.WebmailPlanOn(wp, *binary)
 		fail(err)
 		if !*apply {
 			printPlans(plan)
-			fmt.Printf("# checked only. The web mail would be at port %d. Add -apply to install it.\n", mail.WebmailPort(pp))
+			fmt.Printf("# checked only. The web mail would be at port %d. Add -apply to install it.\n", wp)
 			return
 		}
 		requireLinuxRoot()
+		if distro.IsEL() { // the port may not be the one the install labelled (2612 was fixed there before 1.2.3)
+			fail(runPlanQuiet(installer.Plan{{Name: "web mail port label", Actions: []installer.Action{installer.Run("sh", "-c", svcport.SELinuxPortScript("http_port_t", wp))}}}))
+		}
 		fail(runPlanQuiet(plan))
 		fail(st.SetSetting(settingWebmail, "on"))
 		fail(syncFront(st))
-		fail(webmailFirewall(st, true, mail.WebmailPort(pp)))
-		fmt.Printf("the web mail is on, at port %d of this server\n", mail.WebmailPort(pp))
+		fail(webmailFirewall(st, true, wp))
+		fmt.Printf("the web mail is on, at port %d of this server\n", wp)
 
 	case "disable":
 		if !*apply {

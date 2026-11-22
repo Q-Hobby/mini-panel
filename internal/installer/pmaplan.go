@@ -18,7 +18,7 @@ func PMAPlan(o Options) (Plan, error) {
 		return nil, err
 	}
 	unit := "/etc/systemd/system/mpn-web.service"
-	port := fmt.Sprint(PMAPort(o.PanelPort))
+	port := fmt.Sprint(pmaPortFor(o, o.PanelPort))
 	// The flag goes to the end of the ExecStart line, whatever flags the line holds already (the names the panel answers to).
 	patch := `grep -q -- ' -pma-port ' ` + unit + ` || sed -i 's|^\(ExecStart=.*\)$|\1 -pma-port ` + port + `|' ` + unit
 	return Plan{

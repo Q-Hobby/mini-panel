@@ -100,6 +100,7 @@ type Options struct {
 	SelfPath      string   // path of this binary; when set it is installed and the renewal timer is created
 	Panel         bool     // install the web panel; needs SelfPath
 	PanelPort     int      // public HTTPS port of the panel, 2610 when 0
+	PMAPort       int      // port of the database browser; the one after the panel's when 0
 	PanelHosts    []string // names the panel is reached by; IP addresses are always accepted
 	PMA           bool     // install the database browser (phpMyAdmin) on the port after the panel's; needs Panel and Engine
 }

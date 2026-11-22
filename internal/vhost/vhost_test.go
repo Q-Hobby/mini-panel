@@ -37,6 +37,25 @@ func TestStaticWithoutTLS(t *testing.T) {
 	}
 }
 
+func TestPHPBBServesItsInstallerOnlyUntilItIsReady(t *testing.T) {
+	s := site.Site{Name: "forum-mpanel-biz", Kind: site.PHP, User: "forum-mpanel", Hostnames: []string{"forum.mpanel.biz"}, Root: "/home/forum-mpanel/htdocs", PHPVersion: "8.4", App: "phpbb"}
+	out, err := Render(s, Options{TLS: true, CertDir: "/etc/mpn/certs/forum-mpanel-biz"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustContain(t, out, "location ^~ /install/ {", "rewrite ^(.*)$ /install/app.php/$1 last;", "fastcgi_param PATH_INFO $fastcgi_path_info;",
+		"location @rewriteapp { rewrite ^(.*)$ /index.php/$1 last; }", "images/avatars/upload", "fastcgi_pass unix:/run/php/forum-mpanel-biz.sock;", "location /.well-known/acme-challenge/")
+	s.AppReady = true
+	out, err = Render(s, Options{TLS: true, CertDir: "/etc/mpn/certs/forum-mpanel-biz"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "/install/") {
+		t.Errorf("a ready phpBB must not serve its installer:\n%s", out)
+	}
+	mustContain(t, out, "location @rewriteapp", "deny all;")
+}
+
 func TestPHPWithTLS(t *testing.T) {
 	out, err := Render(phpSite(), Options{TLS: true, CertDir: "/etc/mpn/certs/blog"})
 	if err != nil {

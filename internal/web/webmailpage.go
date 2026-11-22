@@ -18,7 +18,7 @@ func (s *Server) saveWebmail(w http.ResponseWriter, r *http.Request, ss webauth.
 		return
 	}
 	on := r.PostFormValue("webmail") == "1"
-	res := s.runText(T, T("act.webmail", row.Name), ctl.Request{Op: "site.webmail", Site: row.Name, Enable: on})
+	res := s.runText(r, T, T("act.webmail", row.Name), ctl.Request{Op: "site.webmail", Site: row.Name, Enable: on})
 	res.Back = siteTab(row.Name, "")
 	if !res.OK {
 		switch {

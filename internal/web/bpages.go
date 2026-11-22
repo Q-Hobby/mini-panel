@@ -29,7 +29,7 @@ func (s *Server) backupPages(mux *http.ServeMux) {
 func (s *Server) createBackup(w http.ResponseWriter, r *http.Request, ss webauth.Session) {
 	T := translatorForWriter(w)
 	name := r.PostFormValue("site")
-	res := s.runText(T, T("act.bk.create", name), ctl.Request{Op: "backup.create", Site: name})
+	res := s.runText(r, T, T("act.bk.create", name), ctl.Request{Op: "backup.create", Site: name})
 	res.Back = safeBack(r.PostFormValue("back"), "/")
 	s.finish(w, r, res)
 }
@@ -87,7 +87,7 @@ func (s *Server) restoreBackup(w http.ResponseWriter, r *http.Request, ss webaut
 		s.refuseTo(w, ss, back, T("bk.rs.fail"), T("err.pick"))
 	default:
 		req := ctl.Request{Op: "backup.restore", Site: name, Backup: stamp, Files: files, Databases: dbs}
-		res := s.runText(T, T("act.bk.restore", name, stamp), req)
+		res := s.runText(r, T, T("act.bk.restore", name, stamp), req)
 		res.Back = back
 		s.finish(w, r, res)
 	}
@@ -104,7 +104,7 @@ func (s *Server) pruneBackups(w http.ResponseWriter, r *http.Request, ss webauth
 	case err != nil || keep < 1 || keep > 365:
 		s.refuseTo(w, ss, back, T("bk.pr.fail"), T("err.keep"))
 	default:
-		res := s.runText(T, T("act.bk.prune", name), ctl.Request{Op: "backup.prune", Site: name, Keep: keep})
+		res := s.runText(r, T, T("act.bk.prune", name), ctl.Request{Op: "backup.prune", Site: name, Keep: keep})
 		res.Back = back
 		s.finish(w, r, res)
 	}

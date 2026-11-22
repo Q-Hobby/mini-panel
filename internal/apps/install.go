@@ -3,6 +3,7 @@ package apps
 import (
 	"fmt"
 	"path"
+	"regexp"
 	"strings"
 
 	"mpn/internal/distro"
@@ -30,7 +31,7 @@ func HtdocsOf(p Params) string { return site.HtdocsOf(p.Site.User) }
 
 // NeedsDB reports whether the recipe gets a database.
 func (r Recipe) NeedsDB() bool {
-	return r.ID == WordPressID || r.ID == "laravel" || r.ID == "codeigniter"
+	return r.ID == WordPressID || r.ID == "laravel" || r.ID == "codeigniter" || r.ID == PHPBBID
 }
 
 // Check refuses what cannot be installed, with a sentence that says why.
@@ -69,6 +70,64 @@ func (p Params) Check() error {
 
 // shq quotes a value for a shell script, whatever it holds.
 func shq(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
+
+// shJoin quotes each word of a command for a shell line.
+func shJoin(argv []string) string {
+	q := make([]string, len(argv))
+	for i, a := range argv {
+		q[i] = shq(a)
+	}
+	return strings.Join(q, " ")
+}
+
+var (
+	phpbbDBRe     = regexp.MustCompile(`(?m)^\s*\$dbname\s*=\s*'([^']*)'\s*;`)
+	phpbbPrefixRe = regexp.MustCompile(`(?m)^\s*\$table_prefix\s*=\s*'([^']*)'\s*;`)
+	phpbbDoneRe   = regexp.MustCompile(`(?m)^\s*@?define\(\s*'PHPBB_INSTALLED'\s*,\s*true\s*\)`)
+	prefixRe      = regexp.MustCompile(`^[A-Za-z0-9_]{1,32}$`)
+)
+
+// PHPBBConfig reads what the installer of phpBB wrote into config.php: the database and the prefix of its tables. ok is false until the
+// installer has finished, and when a value has characters that could not be part of a name in SQL.
+func PHPBBConfig(text string) (db, prefix string, ok bool) {
+	d, p := phpbbDBRe.FindStringSubmatch(text), phpbbPrefixRe.FindStringSubmatch(text)
+	if d == nil || p == nil || !phpbbDoneRe.MatchString(text) || !safeValueRe.MatchString(d[1]) || !prefixRe.MatchString(p[1]) {
+		return "", "", false
+	}
+	return d[1], p[1], true
+}
+
+// PHPBBFounderSQL counts the founders (user_type 3, the administrator the installer makes) of a phpBB. The names come from PHPBBConfig.
+func PHPBBFounderSQL(db, prefix string) string {
+	return fmt.Sprintf("SELECT COUNT(*) FROM `%s`.`%susers` WHERE user_type = 3;", db, prefix)
+}
+
+// PHPBBFinishPlan removes the installer of phpBB once it is no longer needed; the vhost without its location is written before.
+func PHPBBFinishPlan(s site.Site) installer.Plan {
+	return installer.Plan{{Name: "remove the phpBB installer", Actions: []installer.Action{
+		installer.Run("sh", "-c", fmt.Sprintf(`cd %s && [ -d install ] && runuser -u %s -- rm -rf install || true`, shq(site.HtdocsOf(s.User)), s.User)),
+	}}}
+}
+
+// zipSteps downloads a release package, checks it against the checksum fixed in this package and unpacks it into the web root as the
+// site's user. phpBB then runs its own installer in the browser, where the person types the database details the result page gives.
+func zipSteps(p Params) installer.Plan {
+	root := HtdocsOf(p)
+	script := fmt.Sprintf(`set -eu
+t=$(mktemp -d); trap 'rm -rf "$t"' EXIT
+curl -fsSL --retry 3 -o "$t/pkg.zip" %[1]s
+[ "$(sha256sum "$t/pkg.zip" | cut -d' ' -f1)" = %[2]s ] || { echo "the file from %[1]s does not match its checksum; not installed" >&2; exit 1; }
+chmod 0755 "$t"; chmod 0644 "$t/pkg.zip"
+cd %[3]s
+runuser -u %[4]s -- unzip -q "$t/pkg.zip" -d .unpack
+runuser -u %[4]s -- sh -c 'set -e; [ -d .unpack/%[5]s ] || { echo "the package has no %[5]s folder" >&2; exit 1; }; (cd .unpack/%[5]s && tar cf - .) | tar xf -; rm -rf .unpack'`,
+		shq(p.Recipe.ZipURL), shq(p.Recipe.ZipSHA256), shq(root), p.Site.User, PHPBBTopDir)
+	return installer.Plan{
+		{Name: "download " + p.Recipe.Label, Actions: []installer.Action{installer.Run("sh", "-c", script)}},
+		// The installer writes config.php and keeps its files in these folders; everything else stays as it was unpacked.
+		{Name: "writable folders", Actions: []installer.Action{inRoot(p, `chmod 0640 config.php && chmod 0750 cache store files images/avatars/upload`)}},
+	}
+}
 
 func phpBin(p Params) string { return distro.PHPCLIBinary(p.Site.PHPVersion) }
 
@@ -109,8 +168,11 @@ curl -fsSL --retry 3 -o "$t" "$url"
 install -d -m 0755 "$(dirname "$dest")"; install -m 0644 -o root -g root "$t" "$dest"`, shq(url), shq(sum), algo, shq(dest))
 }
 
-// ToolsStep installs the tool the recipe works with: WP-CLI for WordPress, Composer for the others.
+// ToolsStep installs the tool the recipe works with: WP-CLI for WordPress, unzip for a package, Composer for the others.
 func ToolsStep(r Recipe) installer.Step {
+	if r.ZipURL != "" {
+		return installer.Step{Name: "unzip", Actions: []installer.Action{installer.Run("sh", "-c", "command -v unzip >/dev/null 2>&1 || "+shJoin(distro.InstallCommand("unzip")))}}
+	}
 	if r.ID == WordPressID {
 		return installer.Step{Name: "WP-CLI", Actions: []installer.Action{installer.Run("sh", "-c", toolScript(WPCLIURL, WPCLISHA512, "sha512", WPCLIPath))}}
 	}
@@ -188,9 +250,12 @@ func Plan(p Params) (prep, install installer.Plan, err error) {
 		prep = append(prep, ext)
 	}
 	prep = append(prep, installer.Step{Name: "web root", Actions: []installer.Action{installer.Run("sh", "-c", cleanRootScript(p))}})
-	if p.Recipe.ID == WordPressID {
+	switch {
+	case p.Recipe.ID == WordPressID:
 		install, err = wordpressSteps(p)
-	} else {
+	case p.Recipe.ZipURL != "":
+		install = zipSteps(p)
+	default:
 		install, err = composerSteps(p)
 	}
 	if err != nil {

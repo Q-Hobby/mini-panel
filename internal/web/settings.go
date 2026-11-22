@@ -163,7 +163,7 @@ func readUpdateLog() string {
 // updateCheck asks the helper whether a newer release exists. It is a click away and not done on every page: it asks GitHub.
 func (s *Server) updateCheck(w http.ResponseWriter, r *http.Request, ss webauth.Session) {
 	T := translatorForWriter(w)
-	res := s.runText(T, T("set.up.check.title"), ctl.Request{Op: "panel.updatecheck"})
+	res := s.runText(r, T, T("set.up.check.title"), ctl.Request{Op: "panel.updatecheck"})
 	res.Back = "/update"
 	s.finish(w, r, res)
 }
@@ -177,7 +177,7 @@ func (s *Server) updateStart(w http.ResponseWriter, r *http.Request, ss webauth.
 		s.refuseTo(w, ss, "/update", T("err.nothing"), T("set.up.err.version"))
 		return
 	}
-	res := s.runText(T, T("set.up.start.title"), ctl.Request{Op: "panel.update", Version: v})
+	res := s.runText(r, T, T("set.up.start.title"), ctl.Request{Op: "panel.update", Version: v})
 	res.Back = "/update"
 	s.finish(w, r, res)
 }
@@ -300,6 +300,7 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request, ss webau
 	cur, pw, again := r.PostFormValue("current"), r.PostFormValue("new"), r.PostFormValue("again")
 	if len(cur) > 256 || !acct.Check(acct.User, cur) {
 		s.Throttle.Fail(key)
+		s.note(r, "account.password_fail", "", "", true)
 		log.Printf("login failed from %s", s.clientAddr(r))
 		fail(http.StatusUnauthorized, T("set.pw.wrong"))
 		return
@@ -326,6 +327,7 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request, ss webau
 		return
 	}
 	s.Throttle.Reset(key)
+	s.note(r, "account.password", "", "user="+acct.User, false)
 	s.Sessions.DeleteExcept(s.sessionToken(r)) // a browser signed in with the old password does not stay signed in
 	s.settingsDone(w, r, T("set.pw.done"))
 }
@@ -389,6 +391,7 @@ func (s *Server) twoFAEnable(w http.ResponseWriter, r *http.Request, ss webauth.
 		return
 	}
 	s.Throttle.Reset(key)
+	s.note(r, "account.2fa_on", "", "user="+acct.User, false)
 	s.twofa.dropSetup(s.sessionToken(r))
 	s.settingsDone(w, r, T("set.2fa.done"))
 }
@@ -421,6 +424,7 @@ func (s *Server) twoFADisable(w http.ResponseWriter, r *http.Request, ss webauth
 		s.showSettings(w, r, ss, http.StatusInternalServerError, settingsView{Error: T("set.save"), Which: "2fa"}, nil)
 		return
 	}
+	s.note(r, "account.2fa_off", "", "user="+acct.User, false)
 	s.Throttle.Reset(key)
 	s.settingsDone(w, r, T("set.2fa.off.done"))
 }
@@ -459,6 +463,7 @@ func (s *Server) loginSecondStep(w http.ResponseWriter, r *http.Request) {
 	step, good := webauth.VerifyTOTP(acct.TOTP, code, time.Now(), acct.TOTPStep)
 	if !good {
 		s.Throttle.Fail(key)
+		s.note(r, "login.2fa_fail", "", "user="+p.user, true)
 		log.Printf("login failed from %s", s.clientAddr(r)) // read by the mpn-panel jail of fail2ban
 		if !s.twofa.failLogin(tok) {
 			expired()
@@ -478,6 +483,7 @@ func (s *Server) loginSecondStep(w http.ResponseWriter, r *http.Request) {
 		s.render(w, http.StatusServiceUnavailable, view{Page: "login", Need2FA: true, Pending: tok, Error: T("set.save")})
 		return
 	}
+	s.note(r, "login.ok", "", "user="+acct.User+" 2fa=yes", false)
 	s.twofa.doneLogin(tok)
 	s.Throttle.Reset(key)
 	s.startSession(w, r, acct.User)

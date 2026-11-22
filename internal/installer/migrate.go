@@ -130,6 +130,7 @@ type MigrateInput struct {
 	WebUnit   string // the text of mpn-web.service
 	PanelPort int    // from 01-mpn-panel.conf
 	PMA       bool   // the database browser is installed (02-mpn-pma.conf exists)
+	PMAPort   int    // from 02-mpn-pma.conf; the one after the panel's when 0
 	EL        bool
 	Ports     []int // the panel's own ports, which the SELinux step labels (panel, database browser, web mail)
 }
@@ -166,7 +167,7 @@ func MigrateActions(in MigrateInput) ([]Action, error) {
 		WriteFile(PanelConfFile, panelNginx(in.PanelPort), 0o644),
 	)
 	if in.PMA {
-		acts = append(acts, WriteFile(PMAConfFile, pmaNginx(in.PanelPort), 0o644))
+		acts = append(acts, WriteFile(PMAConfFile, PMANginx(in.PanelPort, pmaPortFor(Options{PMAPort: in.PMAPort}, in.PanelPort)), 0o644))
 	}
 	acts = append(acts,
 		Run("nginx", "-t"),

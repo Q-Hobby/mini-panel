@@ -51,7 +51,7 @@ func (s *Server) addDB(w http.ResponseWriter, r *http.Request, ss webauth.Sessio
 		s.show(w, http.StatusBadRequest, ss, view{Page: "result", Result: &result{Title: T("act.db.add", site), Error: problem, Back: back}})
 		return
 	}
-	res := s.runText(T, T("act.db.add", site), ctl.Request{Op: "db.add", Site: site, Name: name})
+	res := s.runText(r, T, T("act.db.add", site), ctl.Request{Op: "db.add", Site: site, Name: name})
 	res.Back = back
 	if !res.OK && (strings.Contains(res.Output, "already taken") || strings.Contains(res.Output, "already exists on the server")) {
 		shown := name
@@ -124,7 +124,7 @@ func (s *Server) dbAct(action string) func(http.ResponseWriter, *http.Request, w
 			s.show(w, http.StatusBadRequest, ss, view{Page: "result", Result: &result{Title: T("err.nothing"), Error: T("err.confirm"), Back: back}})
 			return
 		}
-		res := s.runText(T, T(a.title, name), ctl.Request{Op: "db." + action, Name: name})
+		res := s.runText(r, T, T(a.title, name), ctl.Request{Op: "db." + action, Name: name})
 		res.Back = back
 		s.finish(w, r, res)
 	}

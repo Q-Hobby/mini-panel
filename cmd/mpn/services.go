@@ -12,6 +12,7 @@ import (
 	"mpn/internal/osinfo"
 	"mpn/internal/services"
 	"mpn/internal/site"
+	"mpn/internal/store"
 	"mpn/internal/tune"
 	"mpn/internal/unit"
 )
@@ -22,7 +23,13 @@ func servicesUsage() {
 }
 
 func servicesProbe() services.Probe {
+	var sites []site.Site
+	if st, err := store.Open(defaultDB); err == nil {
+		sites, _ = st.ListSites()
+		st.Close()
+	}
 	return services.Probe{
+		Sites: sites,
 		State: monitor.SystemdState,
 		Node:  site.InstalledNode(unit.NodeRoot),
 		Exists: func(p string) bool {
@@ -88,6 +95,10 @@ func alreadyInstalled(key string) bool {
 		return unitOf(key) != ""
 	case versioned && kind == services.GroupNode:
 		return slices.Contains(site.InstalledNode(unit.NodeRoot), v)
+	case key == services.PhpMyAdmin:
+		return fileExists(installer.PMAVersionFile)
+	case key == "fail2ban":
+		return unitOf("fail2ban") != ""
 	}
 	return false
 }
@@ -231,7 +242,55 @@ func runServices(args []string) {
 		if *key == "mariadb" || *key == "mysql" {
 			withDatabaseBrowser()
 		}
+	case "remove":
+		fail(services.ValidRemove(*key))
+		if !alreadyInstalled(*key) {
+			fail(fmt.Errorf("%s is not installed on this machine", *key))
+		}
+		plan, err := removePlan(*key)
+		fail(err)
+		if !*apply {
+			fmt.Print(plan)
+			return
+		}
+		requireLinuxRoot()
+		fail(runPlanQuiet(plan))
+		if *key == services.PhpMyAdmin {
+			fail(pmaFront()) // the /pma/ address of a panel with a name goes too
+		}
+		fmt.Printf("%s is removed\n", *key)
 	default:
 		servicesUsage()
 	}
+}
+
+// removePlan is the removal of key, refused while something depends on it.
+func removePlan(key string) (installer.Plan, error) {
+	st := openStore(defaultDB)
+	sites, err := st.ListSites()
+	st.Close()
+	if err != nil {
+		return nil, err
+	}
+	if kind, v, ok := services.InstallVersion(key); ok {
+		if kind == services.GroupNode {
+			return installer.NodeRemovePlan(v, sites)
+		}
+		return installer.PHPRemovePlan(v, sites, fileExists(installer.PMAVersionFile))
+	}
+	switch key {
+	case services.PhpMyAdmin:
+		l := lockedPorts()
+		port := 2610
+		if len(l.Panel) > 0 {
+			port = l.Panel[0]
+		}
+		return installer.PMARemovePlan(port), nil
+	case "fail2ban":
+		if unitOf("fail2ban") == "" {
+			return nil, fmt.Errorf("fail2ban is not installed on this machine")
+		}
+		return installer.Fail2banRemovePlan(), nil
+	}
+	return nil, fmt.Errorf("the panel does not remove %q", key)
 }

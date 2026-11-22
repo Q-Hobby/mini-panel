@@ -40,6 +40,7 @@
                 {{end}}
               {{end}}
               </div>{{end}}
+              {{if .Removable}}{{if .UsedBy}}<span class="text-xs text-muted-foreground" title="{{T "svc.remove.used" (join .UsedBy ", ")}}">{{T "svc.inuse"}}</span>{{else}}<a class="btn-sm text-rose-700 dark:text-rose-400" href="/services/{{.Key}}/remove" aria-label="{{T "svc.btn.remove"}} {{.Label}}">{{T "svc.btn.remove"}}</a>{{end}}{{end}}
             {{else if .Installable}}
               <form method="post" action="/services/{{.Key}}/install" class="inline-flex items-center gap-2"><input type="hidden" name="csrf" value="{{$.CSRF}}">
                 {{if .Series}}{{$def := .DefaultSeries}}<label class="sr-only" for="series-{{.Key}}">{{T "svc.series.label"}} {{.Label}}</label>

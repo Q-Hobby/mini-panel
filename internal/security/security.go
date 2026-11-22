@@ -31,6 +31,8 @@ const (
 	JailFile         = "/etc/fail2ban/jail.d/mpn.conf"
 	PanelFilterFile  = "/etc/fail2ban/filter.d/mpn-panel.conf"
 	ModsecFilterFile = "/etc/fail2ban/filter.d/mpn-modsec.conf"
+	// ModsecAnchorLog is an empty file the mpn-modsec jail always watches, so the jail has a file before the first website exists.
+	ModsecAnchorLog = "/var/log/mpn/sites/.fail2ban-anchor.log"
 )
 
 const (
@@ -203,7 +205,9 @@ func JailConfig(sshPorts, panelPorts []int, ignore []string) (string, error) {
 		"findtime = 10m\n\n" +
 		"[sshd]\nenabled = true\nbackend = systemd\nport = " + ssh + "\nmaxretry = 5\n\n" +
 		"[mpn-panel]\nenabled = true\nfilter = mpn-panel\nbackend = systemd\njournalmatch = _SYSTEMD_UNIT=mpn-web.service\nport = " + panel + "\nmaxretry = 5\n\n" +
-		"[mpn-modsec]\nenabled = true\nfilter = mpn-modsec\nbackend = auto\nlogpath = /var/log/mpn/sites/*/error.log\nport = http,https\nmaxretry = 8\n", nil
+		// The first path is always there (the plan makes it): without a file to watch, fail2ban refuses the whole configuration, which
+		// is the case on a machine with no website yet (seen on AlmaLinux 9.8, 2026-11-21).
+		"[mpn-modsec]\nenabled = true\nfilter = mpn-modsec\nbackend = auto\nlogpath = " + ModsecAnchorLog + "\n          /var/log/mpn/sites/*/error.log\nport = http,https\nmaxretry = 8\n", nil
 }
 
 // PanelFilter matches the line the panel writes to the journal for a wrong password (see server.go, login).

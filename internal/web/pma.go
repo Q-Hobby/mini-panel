@@ -122,7 +122,7 @@ func (s *Server) pmaOpen(w http.ResponseWriter, r *http.Request, ss webauth.Sess
 		s.show(w, http.StatusBadRequest, ss, view{Page: "result", Result: &result{Title: T("pma.title"), Error: T("err.baddb"), Back: "/"}})
 		return
 	}
-	resp, err := s.askText(T, ctl.Request{Op: "db.pma", Name: name})
+	resp, err := s.askText(T, ctl.Request{Op: "db.pma", Name: name, Actor: s.clientAddr(r)})
 	switch {
 	case err != nil:
 		fail(T("err.helper", err.Error()))

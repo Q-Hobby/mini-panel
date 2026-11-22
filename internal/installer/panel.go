@@ -77,6 +77,31 @@ RuntimeDirectoryPreserve=restart
 WantedBy=multi-user.target
 `
 
+// NotifyUnitFile is the unit of the Telegram alerts. It runs as root, apart from the panel and the root helper, so the alerts go on
+// while the panel is restarted or updated. It reads /proc, asks systemd and fail2ban, and reads the activity log; it changes nothing
+// on the machine but its own files. Until the alerts are set up (mpn notify) it only waits.
+const NotifyUnitFile = "/etc/systemd/system/mpn-notify.service"
+
+// NotifyService is the text of mpn-notify.service.
+const NotifyService = `[Unit]
+Description=mpn Telegram alerts
+After=network-online.target mpn-root.service
+Wants=network-online.target
+
+[Service]
+ExecStart=` + mpnBinary + ` notify service
+Restart=always
+RestartSec=10
+Nice=5
+MemoryMax=64M
+PrivateTmp=yes
+ProtectHome=read-only
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target
+`
+
 // webService runs the panel as its own account with almost no rights: it cannot gain any, sees no home directories,
 // writes nowhere, and may use only Unix sockets and IP. Everything it asks for goes through the root helper's socket.
 func webService(hosts []string, pmaPort int) string {
@@ -124,10 +149,20 @@ WantedBy=multi-user.target
 
 // panelNginx makes nginx answer the public port over TLS and hand requests to the panel. The Host header keeps its port
 // (the panel compares it with the Origin of a form), and X-Real-IP is set here, replacing whatever a client sent.
-func panelNginx(port int) string {
+func panelNginx(port int) string { return PanelNginx(port) }
+
+// PanelNginx is panelNginx on one or more ports. A change of the panel's port listens on the old and the new port until the person
+// finishes it; the first port is the one in use, and the one every other part of mpn reads.
+func PanelNginx(ports ...int) string {
+	var l strings.Builder
+	for i, p := range ports {
+		if i > 0 {
+			l.WriteString("\n    ")
+		}
+		fmt.Fprintf(&l, "listen %[1]d ssl http2;\n    listen [::]:%[1]d ssl http2;", p)
+	}
 	return fmt.Sprintf(`server {
-    listen %[1]d ssl http2;
-    listen [::]:%[1]d ssl http2;
+    %[1]s
     server_name _;
     ssl_certificate %[2]s/fullchain.pem;
     ssl_certificate_key %[2]s/privkey.pem;
@@ -138,7 +173,7 @@ func panelNginx(port int) string {
     %[4]s
     %[3]s
 }
-`, port, panelCert, panelLocations(), security.OffInclude)
+`, l.String(), panelCert, panelLocations(), security.OffInclude)
 }
 
 // panelLocations are the locations every server block that serves the panel has, on its port and on its name.
@@ -253,6 +288,9 @@ func panelStep(o Options) (Step, error) {
 		// systemd sets the mode of the folder only when it makes it, so a folder left from an earlier socket is removed first.
 		Run("sh", "-c", "systemctl stop mpn-web mpn-web.socket; rmdir "+PanelSocketDir+" 2>/dev/null; systemctl start mpn-web.socket"),
 		Run("systemctl", "restart", "mpn-web"),
+		WriteFile(NotifyUnitFile, NotifyService, 0o644),
+		Run("systemctl", "daemon-reload"),
+		Run("systemctl", "enable", "--now", "mpn-notify"),
 		WriteFile("/etc/nginx/conf.d/01-mpn-panel.conf", panelNginx(port), 0o644),
 		Run("nginx", "-t"),
 		Run("sh", "-c", nginxRestartIfNeeded),
@@ -268,7 +306,15 @@ func panelStep(o Options) (Step, error) {
 // pmaPortOf is the port of the database browser for the web unit, 0 when it is not installed.
 func pmaPortOf(o Options, panelPort int) int {
 	if o.PMA {
-		return PMAPort(panelPort)
+		return pmaPortFor(o, panelPort)
 	}
 	return 0
+}
+
+// pmaPortFor is the port the database browser is given: the one chosen on the Firewall page, or the one after the panel's.
+func pmaPortFor(o Options, panelPort int) int {
+	if o.PMAPort > 0 {
+		return o.PMAPort
+	}
+	return PMAPort(panelPort)
 }

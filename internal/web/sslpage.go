@@ -69,7 +69,7 @@ func (s *Server) sslAction(w http.ResponseWriter, r *http.Request, ss webauth.Se
 		s.refuseTo(w, ss, back, T("ssl.fail"), problem)
 		return
 	}
-	res := s.runText(T, T(title, row.Name), req)
+	res := s.runText(r, T, T(title, row.Name), req)
 	res.Back = back
 	if !res.OK {
 		switch {

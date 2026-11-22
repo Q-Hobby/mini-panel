@@ -82,7 +82,7 @@ func TestRestoreNeedsTheNameTypedAndSomethingChosen(t *testing.T) {
 		t.Fatalf("refused forms reached the helper: %+v", f.reqs)
 	}
 	do(h, "POST", "/backups/restore", form("blog", url.Values{"files": {"on"}, "database": {"blog", "blog_x"}}), cookie(c))
-	want := ctl.Request{Op: "backup.restore", Site: "blog", Backup: "20261104-031500", Files: true, Databases: []string{"blog", "blog_x"}}
+	want := ctl.Request{Op: "backup.restore", Site: "blog", Backup: "20261104-031500", Files: true, Databases: []string{"blog", "blog_x"}, Actor: "192.0.2.1"}
 	if len(f.reqs) != 1 || !reflect.DeepEqual(f.reqs[0], want) {
 		t.Errorf("got %+v, want %+v", f.reqs, want)
 	}

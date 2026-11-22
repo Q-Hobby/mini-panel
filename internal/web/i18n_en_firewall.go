@@ -22,7 +22,7 @@ func init() {
 		"fw.locked":          "Always open",
 		"fw.locked.ssh":      "SSH",
 		"fw.locked.panel":    "Panel and phpMyAdmin",
-		"fw.locked.d":        "These port groups cannot be removed. Detected again whenever rules load, so changing the SSH port will not lock you out.",
+		"fw.locked.d":        "These port groups cannot be removed. They are read from sshd and nginx whenever rules load, so an SSH port other than 22 set by your provider is open from the start.",
 		"fw.rules":           "Rules",
 		"fw.rules.empty":     "No rules yet",
 		"fw.rules.empty.d":   "Website rules are created when the firewall is first enabled.",

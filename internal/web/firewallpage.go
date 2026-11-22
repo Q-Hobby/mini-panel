@@ -1,11 +1,14 @@
 package web
 
 import (
+	"net"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"mpn/internal/ctl"
 	"mpn/internal/firewall"
+	"mpn/internal/svcport"
 	"mpn/internal/webauth"
 )
 
@@ -20,6 +23,18 @@ type fwView struct {
 	Error    string          `json:"-"`
 	Client   string          `json:"-"`
 	Max      int             `json:"-"`
+	Ports    *svcport.Status `json:"-"` // the ports of the services; nil when they could not be read
+	PortErr  string          `json:"-"`
+	Host     string          `json:"-"` // the name or address the page was opened on, without a port
+	OnPort   int             `json:"-"` // the port the page was opened on
+}
+
+// SSHNew are the ports a waiting change of SSH adds.
+func (v *fwView) SSHNew() []int {
+	if v.Ports == nil {
+		return nil
+	}
+	return v.Ports.SSHNew()
 }
 
 func (s *Server) firewallPages(mux *http.ServeMux) {
@@ -29,13 +44,74 @@ func (s *Server) firewallPages(mux *http.ServeMux) {
 	mux.HandleFunc("POST /firewall/add", s.auth(s.fwAdd))
 	mux.HandleFunc("POST /firewall/block", s.auth(s.fwBlock))
 	mux.HandleFunc("POST /firewall/{id}/delete", s.auth(s.fwDelete))
+	mux.HandleFunc("POST /firewall/port", s.auth(s.fwPortSet))
+	mux.HandleFunc("POST /firewall/port/finish", s.auth(s.fwPortEnd("finish")))
+	mux.HandleFunc("POST /firewall/port/cancel", s.auth(s.fwPortEnd("cancel")))
 }
 
 func (s *Server) firewallPage(w http.ResponseWriter, r *http.Request, ss webauth.Session) {
 	T := translatorForWriter(w)
-	v := &fwView{Client: s.clientAddr(r), Max: firewall.MaxRules}
+	v := &fwView{Client: s.clientAddr(r), Max: firewall.MaxRules, Host: hostOnly(r.Host), OnPort: requestPort(r)}
 	v.Error = s.listText(T, ctl.Request{Op: "firewall.status"}, v)
+	var p svcport.Status
+	if e := s.listText(T, ctl.Request{Op: "port.status"}, &p); e != "" {
+		v.PortErr = e
+	} else {
+		v.Ports = &p
+	}
 	s.show(w, 200, ss, view{Page: "firewall", FW: v})
+}
+
+// requestPort is the port the browser used for this request: the one in the Host header, or 443.
+func requestPort(r *http.Request) int {
+	if _, p, err := net.SplitHostPort(r.Host); err == nil {
+		n, _ := strconv.Atoi(p)
+		return n
+	}
+	return 443
+}
+
+// fwPortSet changes the port of one service. SSH and the panel then wait for the person to finish the change from the new port.
+func (s *Server) fwPortSet(w http.ResponseWriter, r *http.Request, ss webauth.Session) {
+	T := translatorForWriter(w)
+	svc := r.PostFormValue("service")
+	port, err := strconv.Atoi(strings.TrimSpace(r.PostFormValue("port")))
+	if err != nil {
+		port = 0
+	}
+	if err := svcport.Valid(svc, port); err != nil {
+		s.refuseTo(w, ss, "/firewall", T("port.fail"), T("port.err.bad", err.Error()))
+		return
+	}
+	res := s.runText(r, T, T("act.port.set", T("port.svc."+svc), port), ctl.Request{Op: "port.set", SvcKey: svc, Port: port})
+	res.Back = "/firewall"
+	if !res.OK {
+		if strings.Contains(res.Output+res.Error, "port-waiting") {
+			res.Error = T("port.err.waiting")
+		}
+		s.finish(w, r, res)
+		return
+	}
+	if svc == svcport.Panel {
+		// The next step is taken from the new port, which proves it works. The page there is the Firewall page of the same panel; a
+		// cookie does not depend on the port, so the session goes with it.
+		res.Back = "https://" + net.JoinHostPort(hostOnly(r.Host), strconv.Itoa(port)) + "/firewall"
+	}
+	s.finish(w, r, res)
+}
+
+func (s *Server) fwPortEnd(step string) func(http.ResponseWriter, *http.Request, webauth.Session) {
+	return func(w http.ResponseWriter, r *http.Request, ss webauth.Session) {
+		T := translatorForWriter(w)
+		svc := r.PostFormValue("service")
+		if !svcport.TwoStep(svc) {
+			s.refuseTo(w, ss, "/firewall", T("port.fail"), T("port.err.svc"))
+			return
+		}
+		res := s.runText(r, T, T("act.port."+step, T("port.svc."+svc)), ctl.Request{Op: "port." + step, SvcKey: svc})
+		res.Back = "/firewall"
+		s.finish(w, r, res)
+	}
 }
 
 // fwAction runs one operation and shows the result, with the sentences that say what a refusal means.
@@ -46,7 +122,7 @@ func (s *Server) fwAction(w http.ResponseWriter, r *http.Request, ss webauth.Ses
 		s.refuseTo(w, ss, "/firewall", T("fw.fail"), problem)
 		return
 	}
-	res := s.runText(T, T(title), req)
+	res := s.runText(r, T, T(title), req)
 	res.Back = "/firewall"
 	if !res.OK {
 		switch {

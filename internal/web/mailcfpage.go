@@ -160,7 +160,7 @@ func (s *Server) cfAdd(w http.ResponseWriter, r *http.Request, ss webauth.Sessio
 		s.show(w, http.StatusBadRequest, ss, view{Page: "emailcf", CF: v}) // the token is not put back in the form
 		return
 	}
-	res := s.runText(T, T("act.mail.cf", v.Domain), ctl.Request{Op: "mail.cfadd", MailDomain: v.Domain, CFToken: token})
+	res := s.runText(r, T, T("act.mail.cf", v.Domain), ctl.Request{Op: "mail.cfadd", MailDomain: v.Domain, CFToken: token})
 	res.Back = "/email"
 	if res.OK {
 		var rep cfReport

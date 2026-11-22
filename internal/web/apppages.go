@@ -120,7 +120,7 @@ func (s *Server) appInstall(w http.ResponseWriter, r *http.Request, ss webauth.S
 		s.refuseTo(w, ss, back, T("app.fail"), p)
 		return
 	}
-	res := s.runText(T, T("act.app.install", appLabel(f.App), row.Name), f.request(row.Name))
+	res := s.runText(r, T, T("act.app.install", appLabel(f.App), row.Name), f.request(row.Name))
 	res.Back = back
 	if !res.OK {
 		if e := appErrorText(T, res.Output); e != "" {

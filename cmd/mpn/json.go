@@ -20,6 +20,7 @@ type siteRow struct {
 	Speed       bool     `json:"speed"`
 	Webmail     bool     `json:"webmail"`               // the web mail is served under /webmail/ of the site's names
 	App         string   `json:"app,omitempty"`         // the application mpn installed in a PHP site
+	AppReady    bool     `json:"app_ready,omitempty"`   // phpBB: its installer finished and was closed
 	CertExpiry  int64    `json:"cert_expiry,omitempty"` // when the certificate ends, for a site with HTTPS
 	CustomVhost bool     `json:"custom_vhost"`          // the nginx configuration was written by hand
 }

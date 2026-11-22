@@ -57,7 +57,7 @@ func TestJailConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"ignoreip = 127.0.0.0/8 ::1 203.0.113.7 198.51.100.0/24\n", "[sshd]\nenabled = true\nbackend = systemd\nport = 22,2222\n",
-		"port = 2610,2611\n", "filter = mpn-panel", "filter = mpn-modsec", "banaction = nftables\n", "logpath = /var/log/mpn/sites/*/error.log"} {
+		"port = 2610,2611\n", "filter = mpn-panel", "filter = mpn-modsec", "banaction = nftables\n", "logpath = " + ModsecAnchorLog + "\n          /var/log/mpn/sites/*/error.log\n"} {
 		if !strings.Contains(c, want) {
 			t.Errorf("missing %q in:\n%s", want, c)
 		}

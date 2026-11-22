@@ -57,8 +57,11 @@ func TestTheRecipesAreConsistent(t *testing.T) {
 		if !site.ValidApp(r.ID) {
 			t.Errorf("%s is not in site.Apps", r.ID)
 		}
-		if r.ID != WordPressID && r.Package == "" {
-			t.Errorf("%s has no Composer package", r.ID)
+		if r.ID != WordPressID && (r.Package == "") == (r.ZipURL == "") {
+			t.Errorf("%s needs exactly one of a Composer package and a release package", r.ID)
+		}
+		if r.ZipURL != "" && (len(r.ZipSHA256) != 64 || !strings.HasPrefix(r.ZipURL, "https://")) {
+			t.Errorf("%s: the release package must be HTTPS with a SHA-256", r.ID)
 		}
 		if r.DocRoot != "" && !site.ValidSubdir(r.DocRoot) {
 			t.Errorf("%s: web root %q is not allowed", r.ID, r.DocRoot)
@@ -255,7 +258,7 @@ func TestEverySkeletonThatStartsInDebugModeIsPutInProductionMode(t *testing.T) {
 func TestFrameworksWithoutADatabaseNeedNone(t *testing.T) {
 	for _, id := range IDs() {
 		r, _ := Get(id)
-		want := id == WordPressID || id == "laravel" || id == "codeigniter"
+		want := id == WordPressID || id == "laravel" || id == "codeigniter" || id == PHPBBID
 		if r.NeedsDB() != want {
 			t.Errorf("%s NeedsDB = %v", id, r.NeedsDB())
 		}
@@ -299,6 +302,9 @@ func TestACleanupRemovesTheSecretsAndWhatWasDownloaded(t *testing.T) {
 
 func TestToolsAreInstalledOnlyWithTheirPinnedChecksum(t *testing.T) {
 	for _, r := range All() {
+		if r.ZipURL != "" {
+			continue // the package itself is checked in zipSteps (TestPHPBB)
+		}
 		s := ToolsStep(r)
 		script := s.Actions[0].Args[2]
 		want := WPCLISHA512

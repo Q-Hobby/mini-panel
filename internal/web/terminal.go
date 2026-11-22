@@ -116,7 +116,7 @@ func (s *Server) terminalSocket(w http.ResponseWriter, r *http.Request, ss webau
 	}
 	defer conn.CloseNow()
 	conn.SetReadLimit(64 << 10)
-	s.runTerminalText(T, r.Context(), conn, row, cols, rows)
+	s.runTerminalText(T, context.WithValue(r.Context(), actorKey{}, s.clientAddr(r)), conn, row, cols, rows)
 }
 func (s *Server) runTerminal(parent context.Context, conn *websocket.Conn,
 	row siteRow, cols, rows int) {
@@ -167,6 +167,13 @@ func (s *Server) runTerminalText(T translator, parent context.Context, conn *web
 	}
 	s.termLog("open", row, nil)
 	defer s.termLog("close", row, nil)
+	if a, ok := parent.Value(actorKey{}).(string); ok {
+		opened := time.Now()
+		s.noteFrom(a, "terminal.open", row.Name, "user="+row.User, false)
+		defer func() {
+			s.noteFrom(a, "terminal.close", row.Name, "after="+time.Since(opened).Round(time.Second).String(), false)
+		}()
+	}
 
 	idleTimer := time.AfterFunc(idle, func() { end(websocket.StatusNormalClosure, "idle") }) // when nobody types for a while
 	defer idleTimer.Stop()

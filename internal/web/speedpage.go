@@ -16,7 +16,7 @@ func (s *Server) saveSpeed(w http.ResponseWriter, r *http.Request, ss webauth.Se
 		http.Error(w, msg, status)
 		return
 	}
-	res := s.runText(T, T("act.speed", row.Name), ctl.Request{Op: "site.speed", Site: row.Name, Speed: r.PostFormValue("speed") == "1"})
+	res := s.runText(r, T, T("act.speed", row.Name), ctl.Request{Op: "site.speed", Site: row.Name, Speed: r.PostFormValue("speed") == "1"})
 	res.Back = siteTab(row.Name, "")
 	if !res.OK && strings.Contains(res.Output, "custom-vhost") {
 		res.Error = T("vh.err.custom")

@@ -18,6 +18,7 @@ import (
 	"mpn/internal/firewall"
 	"mpn/internal/installer"
 	"mpn/internal/store"
+	"mpn/internal/svcport"
 )
 
 const (
@@ -51,6 +52,12 @@ var (
 // wrote). When a kind cannot be found its usual port is used, so the way in is never empty.
 func lockedPorts() firewall.Locked {
 	var l firewall.Locked
+	// sshd -T refuses to run without its privilege separation folder, which systemd makes only while ssh.service runs. Where
+	// ssh.socket starts sshd on demand (Ubuntu 22.10 and later) the folder is often missing, sshd -T printed nothing and the port
+	// fell back to 22: a server with SSH on 2222 had its SSH closed by the firewall (seen on Ubuntu 24.04, 2026-11-20).
+	if os.Geteuid() == 0 {
+		_ = os.MkdirAll("/run/sshd", 0o755)
+	}
 	for _, m := range sshPortRe.FindAllStringSubmatch(out(5*time.Second, "sshd", "-T"), -1) {
 		n, _ := strconv.Atoi(m[1])
 		l.SSH = append(l.SSH, n)
@@ -67,9 +74,13 @@ func lockedPorts() firewall.Locked {
 			}
 		}
 	}
+	// The addresses of ssh.socket, where systemd holds them: ss names systemd, not sshd, as the owner while no session is open.
+	l.SSH = append(l.SSH, svcport.SocketPorts(out(5*time.Second, "systemctl", "show", "ssh.socket", "-p", "Listen"))...)
 	if len(l.SSH) == 0 {
 		l.SSH = []int{22}
 	}
+	sort.Ints(l.SSH)
+	l.SSH = slices.Compact(l.SSH)
 	if b, err := os.ReadFile(panelNginx); err == nil {
 		for _, m := range listenSSLRe.FindAllStringSubmatch(string(b), -1) {
 			n, _ := strconv.Atoi(m[1])

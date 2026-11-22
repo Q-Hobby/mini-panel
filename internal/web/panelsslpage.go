@@ -64,7 +64,7 @@ func (s *Server) panelSSLAction(w http.ResponseWriter, r *http.Request, ss webau
 		s.refuseTo(w, ss, "/security", T("psl.fail"), problem)
 		return
 	}
-	res := s.runText(T, T(title), req)
+	res := s.runText(r, T, T(title), req)
 	res.Back = "/security"
 	if !res.OK {
 		switch {

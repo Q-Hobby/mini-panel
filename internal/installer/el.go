@@ -374,7 +374,9 @@ func elPanelPorts(o Options) []int {
 	if p == 0 {
 		p = 2610
 	}
-	return []int{p, PMAPort(p), 2612}
+	// The web mail is the second port after the panel's (mail.WebmailPort); 2612 was written here before, which was wrong for
+	// any panel port but 2610.
+	return []int{p, pmaPortFor(o, p), p + 2}
 }
 
 // ---- base packages -------------------------------------------------------------------------------------------------------------

@@ -28,6 +28,7 @@ type siteRow struct {
 	Speed            bool   `json:"speed"`
 	Webmail          bool   `json:"webmail"`
 	App              string `json:"app"`
+	AppReady         bool   `json:"app_ready"`
 	CertExpiry       int64  `json:"cert_expiry"`
 	CustomVhost      bool   `json:"custom_vhost"`
 }
@@ -129,14 +130,18 @@ func plainErrorText(T translator, e string) string {
 	return e
 }
 func (s *Server) run(title string, reqs ...ctl.Request) *result {
-	return s.runText(T, title, reqs...)
+	return s.runText(nil, T, title, reqs...)
 }
 
-// run sends the requests one after another and stops at the first that fails. The output of all of them is shown.
-func (s *Server) runText(T translator, title string, reqs ...ctl.Request) *result {
+// run sends the requests one after another and stops at the first that fails. The output of all of them is shown. Each request
+// carries the address of the person (r), which the root helper writes to the activity log.
+func (s *Server) runText(r *http.Request, T translator, title string, reqs ...ctl.Request) *result {
 	res := &result{Title: title, OK: true}
 	var out []string
 	for _, rq := range reqs {
+		if r != nil {
+			rq.Actor = s.clientAddr(r)
+		}
 		resp, err := s.askText(T, rq)
 		if t := strings.TrimRight(resp.Output, "\n"); t != "" {
 			out = append(out, t)
@@ -324,7 +329,7 @@ func (s *Server) addSite(w http.ResponseWriter, r *http.Request, ss webauth.Sess
 			}
 		}
 	}
-	res := s.runText(T, T("act.site.create", name),
+	res := s.runText(r, T, T("act.site.create", name),
 		ctl.Request{Op: "site.add", Site: name, User: user, Kind: r.PostFormValue("kind"), Hosts: hosts, PHP: r.PostFormValue("php"),
 			Node: r.PostFormValue("node"), Python: r.PostFormValue("python"), Entry: strings.TrimSpace(r.PostFormValue("entry")), Upstream: strings.TrimSpace(r.PostFormValue("upstream"))},
 		ctl.Request{Op: "site.apply", Site: name},
@@ -339,7 +344,7 @@ func (s *Server) addSite(w http.ResponseWriter, r *http.Request, ss webauth.Sess
 	if app.App != "" {
 		// The website exists and its login is in the output above. The application is installed as a second step, so that a failure
 		// of the download leaves a website the person can use and try again on.
-		ar := s.runText(T, T("act.app.install", appLabel(app.App), name), app.request(name))
+		ar := s.runText(r, T, T("act.app.install", appLabel(app.App), name), app.request(name))
 		if ar.Output != "" {
 			res.Output += "\n\n" + ar.Output
 		}
@@ -357,7 +362,7 @@ func (s *Server) addSite(w http.ResponseWriter, r *http.Request, ss webauth.Sess
 func (s *Server) applySite(w http.ResponseWriter, r *http.Request, ss webauth.Session) {
 	T := translatorForWriter(w)
 	name := r.PostFormValue("site")
-	res := s.runText(T, T("act.site.apply", name), ctl.Request{Op: "site.apply", Site: name})
+	res := s.runText(r, T, T("act.site.apply", name), ctl.Request{Op: "site.apply", Site: name})
 	res.Back = safeBack(r.PostFormValue("back"), "/")
 	s.finish(w, r, res)
 }
@@ -383,5 +388,5 @@ func (s *Server) removeSite(w http.ResponseWriter, r *http.Request, ss webauth.S
 		return
 	}
 	req := ctl.Request{Op: "site.remove", Site: name, Purge: r.PostFormValue("purge") != ""}
-	s.finish(w, r, s.runText(T, T("act.site.remove", name), req))
+	s.finish(w, r, s.runText(r, T, T("act.site.remove", name), req))
 }
